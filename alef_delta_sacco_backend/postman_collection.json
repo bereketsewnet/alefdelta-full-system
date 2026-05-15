@@ -1,0 +1,1515 @@
+{
+  "info": {
+    "name": "ALEF-DELTA SACCO API - Complete",
+    "description": "Complete API collection for ALEF-DELTA SACCO Management System",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000/api",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "memberId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "accountId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "loanId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "accountProductCode",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login - Staff",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', response.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', response.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actor\": \"STAFF\",\n  \"identifier\": \"admin_1763847546518\",\n  \"password\": \"uudlQ/niFtQYTBBMIMl3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Login - Member",
+      "request": {
+        "method": "POST",
+        "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+        ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actor\": \"MEMBER\",\n  \"identifier\": \"+251911234567\",\n  \"password\": \"Password123!\"\n}"
+            },
+        "url": {
+          "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh"]
+            }
+          }
+        },
+        {
+          "name": "Request OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+251911234567\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/request-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "request-otp"]
+            }
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"otp_request_id\": \"otp-id\",\n  \"code\": \"123456\",\n  \"new_password\": \"NewPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/verify-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "verify-otp"]
+            }
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+        "body": {
+          "mode": "raw",
+              "raw": "{\n  \"current_password\": \"OldPassword123!\",\n  \"new_password\": \"NewPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "change-password"]
+        }
+      }
+        }
+      ]
+    },
+    {
+      "name": "Members",
+      "item": [
+    {
+      "name": "List Members",
+      "request": {
+        "method": "GET",
+        "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/members?limit=25&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["members"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "25"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('memberId', response.member_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"John\",\n  \"middle_name\": \"Doe\",\n  \"last_name\": \"Smith\",\n  \"phone_primary\": \"+251911234567\",\n  \"email\": \"john@example.com\",\n  \"gender\": \"MALE\",\n  \"marital_status\": \"SINGLE\",\n  \"member_type\": \"INDIVIDUAL\",\n  \"monthly_income\": 15000,\n  \"password\": \"Password123!\",\n  \"address_subcity\": \"Bole\",\n  \"address_woreda\": \"01\",\n  \"address_house_no\": \"123\"\n}"
+            },
+        "url": {
+          "raw": "{{baseUrl}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["members"]
+            }
+          }
+        },
+        {
+          "name": "Get Member",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/members/{{memberId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["members", "{{memberId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Member",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monthly_income\": 20000,\n  \"email\": \"newemail@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/members/{{memberId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["members", "{{memberId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Member",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/members/{{memberId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["members", "{{memberId}}"]
+            }
+          }
+        },
+        {
+          "name": "Activate Member",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/members/{{memberId}}/activate",
+              "host": ["{{baseUrl}}"],
+              "path": ["members", "{{memberId}}", "activate"]
+            }
+          }
+        },
+        {
+          "name": "Suspend Member",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Suspicious activity\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/members/{{memberId}}/suspend",
+              "host": ["{{baseUrl}}"],
+              "path": ["members", "{{memberId}}", "suspend"]
+            }
+          }
+        },
+        {
+          "name": "Upload Member Documents",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "profile_photo",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "id_card",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/members/{{memberId}}/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["members", "{{memberId}}", "upload"]
+            }
+          }
+        },
+        {
+          "name": "Add Beneficiary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "full_name",
+                  "value": "Jane Smith",
+                  "type": "text"
+                },
+                {
+                  "key": "relationship",
+                  "value": "SPOUSE",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "+251922334455",
+                  "type": "text"
+                },
+                {
+                  "key": "id_front",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "id_back",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/members/{{memberId}}/beneficiaries",
+              "host": ["{{baseUrl}}"],
+              "path": ["members", "{{memberId}}", "beneficiaries"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Accounts",
+      "item": [
+        {
+          "name": "List Accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/accounts?limit=50&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "member_id",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "disabled": true
+                },
+                {
+                  "key": "product_code",
+                  "value": "SAVINGS",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('accountId', response.account_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"member_id\": \"{{memberId}}\",\n  \"product_code\": \"SAVINGS\",\n  \"currency\": \"ETB\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts"]
+            }
+          }
+        },
+        {
+          "name": "Get Member Accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/accounts/member/{{memberId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts", "member", "{{memberId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Account",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/accounts/{{accountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts", "{{accountId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Account",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lien_amount\": 5000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/accounts/{{accountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts", "{{accountId}}"]
+            }
+          }
+        },
+        {
+          "name": "Freeze Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Suspicious activity detected\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/freeze",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts", "{{accountId}}", "freeze"]
+            }
+          }
+        },
+        {
+          "name": "Unfreeze Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/unfreeze",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts", "{{accountId}}", "unfreeze"]
+            }
+          }
+        },
+        {
+          "name": "Close Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/close",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts", "{{accountId}}", "close"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "item": [
+        {
+          "name": "List Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/transactions?account_id={{accountId}}&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["transactions"],
+              "query": [
+                {
+                  "key": "account_id",
+                  "value": "{{accountId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+        }
+      }
+    },
+    {
+      "name": "Deposit",
+      "request": {
+        "method": "POST",
+        "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "account_id",
+                  "value": "{{accountId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "amount",
+                  "value": "1000",
+                  "type": "text"
+                },
+                {
+                  "key": "reference",
+                  "value": "Cash deposit",
+                  "type": "text"
+                },
+                {
+                  "key": "receipt",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+        "url": {
+          "raw": "{{baseUrl}}/transactions/deposit",
+              "host": ["{{baseUrl}}"],
+              "path": ["transactions", "deposit"]
+            }
+          }
+        },
+        {
+          "name": "Withdraw",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+                {
+                  "key": "account_id",
+                  "value": "{{accountId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "amount",
+                  "value": "500",
+                  "type": "text"
+                },
+                {
+                  "key": "reference",
+                  "value": "Cash withdrawal",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/transactions/withdraw",
+              "host": ["{{baseUrl}}"],
+              "path": ["transactions", "withdraw"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Loans",
+      "item": [
+        {
+          "name": "Create Loan Application",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('loanId', response.loan_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"member_id\": \"{{memberId}}\",\n  \"product_code\": \"LOAN_PERSONAL\",\n  \"applied_amount\": 50000,\n  \"term_months\": 12,\n  \"purpose_description\": \"Business expansion\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/loans",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans"]
+            }
+          }
+        },
+        {
+          "name": "Get Loan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/loans/{{loanId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans", "{{loanId}}"]
+            }
+          }
+        },
+        {
+          "name": "Check Eligibility",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/loans/{{loanId}}/check-eligibility",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans", "{{loanId}}", "check-eligibility"]
+        }
+      }
+    },
+    {
+      "name": "Approve Loan",
+      "request": {
+        "method": "POST",
+        "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approved_amount\": 50000,\n  \"term_months\": 12,\n  \"interest_rate\": 15\n}"
+            },
+        "url": {
+          "raw": "{{baseUrl}}/loans/{{loanId}}/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans", "{{loanId}}", "approve"]
+            }
+          }
+        },
+        {
+          "name": "Get Repayment Schedule",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/loans/{{loanId}}/schedule",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans", "{{loanId}}", "schedule"]
+            }
+          }
+        },
+        {
+          "name": "Calculate Installment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"principal\": 50000,\n  \"interest_rate\": 15,\n  \"interest_type\": \"FLAT\",\n  \"term_months\": 12\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/loans/calculate-installment",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans", "calculate-installment"]
+            }
+          }
+        },
+        {
+          "name": "Add Guarantor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "full_name",
+                  "value": "John Doe",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "+251912345678",
+                  "type": "text"
+                },
+                {
+                  "key": "relationship",
+                  "value": "Friend",
+                  "type": "text"
+                },
+                {
+                  "key": "address",
+                  "value": "Addis Ababa, Ethiopia",
+                  "type": "text"
+                },
+                {
+                  "key": "guaranteed_amount",
+                  "value": "25000",
+                  "type": "text"
+                },
+                {
+                  "key": "duty_value",
+                  "value": "25000",
+                  "type": "text"
+                },
+                {
+                  "key": "profile_photo",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "id_front",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "id_back",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/loans/{{loanId}}/guarantors",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans", "{{loanId}}", "guarantors"]
+            }
+          }
+        },
+        {
+          "name": "Add Collateral",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "type",
+                  "value": "VEHICLE",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Toyota Corolla 2018",
+                  "type": "text"
+                },
+                {
+                  "key": "estimated_value",
+                  "value": "300000",
+                  "type": "text"
+                },
+                {
+                  "key": "document",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+        },
+            "url": {
+              "raw": "{{baseUrl}}/loans/{{loanId}}/collateral",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans", "{{loanId}}", "collateral"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Collateral",
+      "item": [
+        {
+          "name": "Verify Collateral",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"VERIFIED\",\n  \"notes\": \"Vehicle documents verified\",\n  \"verified_value\": 280000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/collateral/collateral-id/verify",
+              "host": ["{{baseUrl}}"],
+              "path": ["collateral", "collateral-id", "verify"]
+            }
+          }
+        },
+        {
+          "name": "Get Collateral Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/collateral/loan/{{loanId}}/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["collateral", "loan", "{{loanId}}", "summary"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Guarantors",
+      "item": [
+        {
+          "name": "Verify Guarantor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"VERIFIED\",\n  \"notes\": \"Guarantor capacity confirmed\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/guarantors/guarantor-id/verify",
+              "host": ["{{baseUrl}}"],
+              "path": ["guarantors", "guarantor-id", "verify"]
+            }
+          }
+        },
+        {
+          "name": "Get Guarantor Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/guarantors/loan/{{loanId}}/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["guarantors", "loan", "{{loanId}}", "summary"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"]
+            }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"teller.one\",\n  \"password\": \"Password123!\",\n  \"role\": \"TELLER\",\n  \"email\": \"teller@sacco.local\",\n  \"phone\": \"+251911111111\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Account Products",
+      "item": [
+        {
+          "name": "List Account Products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/account-products",
+              "host": ["{{baseUrl}}"],
+              "path": ["account-products"]
+            }
+          }
+        },
+        {
+          "name": "Create Account Product",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('accountProductCode', response.product_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_code\": \"SAV_CHILD_EDU\",\n  \"name\": \"Children Education Savings\",\n  \"category\": \"SAVINGS\",\n  \"product_kind\": \"CHILDREN\",\n  \"guardian_required\": true,\n  \"commodity_required\": false,\n  \"target_required\": true,\n  \"min_balance\": 0,\n  \"min_deposit\": 150,\n  \"interest_rate\": 0,\n  \"withdrawal_policy\": \"Withdrawals require guardian approval\",\n  \"notes\": \"Directive 982/2024 compliant children's savings\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/account-products",
+              "host": ["{{baseUrl}}"],
+              "path": ["account-products"]
+            }
+          }
+        },
+        {
+          "name": "Update Account Product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_kind\": \"CHILDREN\",\n  \"guardian_required\": true,\n  \"target_required\": true,\n  \"min_deposit\": 200,\n  \"withdrawal_policy\": \"Guardian approval with 2-day notice\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/account-products/{{accountProductCode}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["account-products", "{{accountProductCode}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Account Product",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/account-products/{{accountProductCode}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["account-products", "{{accountProductCode}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Reset User Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/user-id/reset-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "users", "user-id", "reset-password"]
+            }
+          }
+        },
+        {
+          "name": "Get Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit-logs?limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "audit-logs"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "entity",
+                  "value": "members",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Portfolio Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "summary"]
+            }
+          }
+        },
+        {
+          "name": "Transaction Report",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/transactions?start_date=2025-01-01&end_date=2025-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "transactions"],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "2025-01-01"
+                },
+                {
+                  "key": "end_date",
+                  "value": "2025-12-31"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Client (Telegram Mini App)",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/client/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["client", "me"]
+            }
+          }
+        },
+        {
+          "name": "Get Accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/client/accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["client", "accounts"]
+            }
+          }
+        },
+        {
+          "name": "Get Account Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/client/accounts/{{accountId}}/transactions?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["client", "accounts", "{{accountId}}", "transactions"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Loans",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/client/loans",
+              "host": ["{{baseUrl}}"],
+              "path": ["client", "loans"]
+            }
+          }
+        },
+        {
+          "name": "Get Loan Schedule",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/client/loans/{{loanId}}/schedule",
+              "host": ["{{baseUrl}}"],
+              "path": ["client", "loans", "{{loanId}}", "schedule"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "Send Notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+        "body": {
+          "mode": "raw",
+              "raw": "{\n  \"chat_id\": \"123456789\",\n  \"message\": \"Your loan has been approved!\",\n  \"attachments\": []\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/notifications/send-notification",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications", "send-notification"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+        }
+      }
+        }
+      ]
+    }
+  ]
+}

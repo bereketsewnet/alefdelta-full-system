@@ -1,0 +1,209 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Microfinance Trust-First Palette */
+    --background: 0 0% 100%;
+    --foreground: 180 45% 15%;
+    
+    /* Deep Teal Primary */
+    --primary: 182 62% 18%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 182 62% 25%;
+    
+    /* Warm Gold Accent */
+    --accent: 45 65% 52%;
+    --accent-foreground: 180 45% 15%;
+    --accent-light: 45 70% 92%;
+    
+    /* Secondary Slate */
+    --secondary: 210 15% 92%;
+    --secondary-foreground: 180 45% 15%;
+    
+    /* Status Colors */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --success-light: 142 71% 95%;
+    
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --warning-light: 38 92% 95%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-light: 0 84% 95%;
+    
+    --info: 204 94% 45%;
+    --info-foreground: 0 0% 100%;
+    --info-light: 204 94% 95%;
+    
+    /* Neutral Layers */
+    --card: 0 0% 100%;
+    --card-foreground: 180 45% 15%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 180 45% 15%;
+    
+    --muted: 210 15% 96%;
+    --muted-foreground: 210 10% 45%;
+    
+    --border: 210 15% 88%;
+    --input: 210 15% 88%;
+    --ring: 182 62% 18%;
+    
+    /* Financial Data Display */
+    --numeric-positive: 142 71% 45%;
+    --numeric-negative: 0 84.2% 60.2%;
+    --numeric-neutral: 180 45% 15%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(182 62% 18%), hsl(182 62% 28%));
+    --gradient-accent: linear-gradient(135deg, hsl(45 65% 52%), hsl(45 65% 62%));
+    --gradient-success: linear-gradient(135deg, hsl(142 71% 45%), hsl(142 71% 55%));
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    --shadow-glow: 0 0 20px rgba(212, 175, 55, 0.3);
+    
+    /* Spacing */
+    --radius: 0.5rem;
+    --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
+    
+    /* Sidebar */
+    --sidebar-background: 182 62% 18%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 45 65% 52%;
+    --sidebar-primary-foreground: 180 45% 15%;
+    --sidebar-accent: 182 62% 25%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 182 62% 25%;
+    --sidebar-ring: 45 65% 52%;
+    
+    /* Animations */
+    --transition-base: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-smooth: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    --background: 180 45% 8%;
+    --foreground: 0 0% 95%;
+    
+    --primary: 182 62% 35%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 182 62% 45%;
+    
+    --accent: 45 65% 60%;
+    --accent-foreground: 180 45% 8%;
+    --accent-light: 45 40% 20%;
+    
+    --secondary: 210 15% 18%;
+    --secondary-foreground: 0 0% 95%;
+    
+    --card: 180 35% 12%;
+    --card-foreground: 0 0% 95%;
+    
+    --popover: 180 35% 12%;
+    --popover-foreground: 0 0% 95%;
+    
+    --muted: 180 25% 15%;
+    --muted-foreground: 210 10% 65%;
+    
+    --border: 180 25% 20%;
+    --input: 180 25% 20%;
+    --ring: 182 62% 35%;
+    
+    --sidebar-background: 180 45% 8%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 45 65% 60%;
+    --sidebar-primary-foreground: 180 45% 8%;
+    --sidebar-accent: 180 35% 15%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 180 25% 20%;
+    --sidebar-ring: 45 65% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  
+  /* Financial Data Typography */
+  .numeric-display {
+    @apply font-mono tabular-nums;
+  }
+  
+  .currency {
+    @apply font-medium tracking-tight;
+  }
+}
+
+@layer components {
+  /* Mobile Bottom Navigation */
+  .mobile-nav {
+    @apply fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur-xl border-t border-border z-50;
+  }
+}
+
+@layer utilities {
+  /* Smooth transitions */
+  .transition-base {
+    transition: var(--transition-base);
+  }
+  
+  .transition-smooth {
+    transition: var(--transition-smooth);
+  }
+  
+  /* Financial status badges */
+  .status-active {
+    @apply bg-success-light text-success border border-success/20;
+  }
+  
+  .status-pending {
+    @apply bg-warning-light text-warning border border-warning/20;
+    }
+  
+  .status-suspended {
+    @apply bg-destructive-light text-destructive border border-destructive/20;
+  }
+  
+  .status-approved {
+    @apply bg-info-light text-info border border-info/20;
+  }
+  
+  /* Hover scale effect */
+  .hover-lift {
+    @apply transition-smooth hover:-translate-y-0.5 hover:shadow-lg;
+  }
+  
+  /* Card glass effect */
+  .card-glass {
+    @apply bg-card/80 backdrop-blur-sm border border-border/50;
+  }
+  
+  /* Gradient text */
+  .text-gradient-primary {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+  
+  .text-gradient-accent {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-accent);
+  }
+}

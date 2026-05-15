@@ -1,0 +1,16 @@
+node_modules
+coverage
+dist
+logs
+*.log
+uploads/**
+!uploads/.gitkeep
+scripts/admin_credentials.txt
+bot/.env
+bot/.venv
+bot/__pycache__
+scripts/admin_credentials.txt
+.env
+.env.local
+.env.*.local
+

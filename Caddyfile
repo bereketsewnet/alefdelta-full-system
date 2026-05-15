@@ -1,0 +1,15 @@
+{
+    email nathansadrasha@gmail.com
+}
+
+sacco-api.alefdelta.com {
+    reverse_proxy api:4000
+}
+
+sacco-mp.alefdelta.com {
+    reverse_proxy member_portal:80
+}
+
+corebank.alefdelta.com {
+    reverse_proxy frontend:80
+}

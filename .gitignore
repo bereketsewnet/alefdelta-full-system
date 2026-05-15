@@ -1,0 +1,64 @@
+# ---------- Dependencies ----------
+node_modules/
+**/node_modules/
+.pnp.*
+.yarn/cache
+.yarn/install-state.gz
+
+# ---------- Ai Agent history ----------
+.claude/
+
+# ---------- Build output ----------
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# ---------- Logs ----------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---------- Environment / secrets ----------
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Backend-specific secrets
+alef_delta_sacco_backend/scripts/admin_credentials.txt
+alef_delta_sacco_backend/bot/.env
+alef_delta_sacco_backend/bot/.venv/
+alef_delta_sacco_backend/bot/__pycache__/
+
+# ---------- User uploads (per-deployment data) ----------
+alef_delta_sacco_backend/uploads/**
+!alef_delta_sacco_backend/uploads/.gitkeep
+
+# ---------- Editor / OS ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.local
+
+# ---------- Caddy persistent data (if ever mounted to host) ----------
+caddy_data/
+caddy_config/
+
+# ---------- Misc ----------
+*.tar.gz
+*.zip
+*.bak

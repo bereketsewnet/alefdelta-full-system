@@ -1,0 +1,1342 @@
+openapi: 3.0.3
+info:
+  title: ALEF-DELTA SACCO API
+  version: 1.0.0
+  description: |
+    Complete backend API for ALEF-DELTA SACCO Management System.
+    
+    ## Authentication
+    Most endpoints require JWT authentication via Bearer token.
+    
+    ## Roles
+    - **ADMIN**: Full system access
+    - **TELLER**: Cash operations, member creation
+    - **CREDIT_OFFICER**: Loan processing, collateral/guarantor verification
+    - **MANAGER**: Approvals, member activation
+    - **AUDITOR**: Read-only access
+    - **MEMBER**: Client self-service
+    
+servers:
+  - url: http://localhost:4000/api
+    description: Local development server
+  - url: https://api.alef-delta.local/api
+    description: Production server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        status:
+          type: integer
+          
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        actor:
+          type: string
+          enum: [STAFF, MEMBER]
+          description: Type of user logging in
+        identifier:
+          type: string
+          description: Username for staff or phone for members
+        password:
+          type: string
+          format: password
+          
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+          
+    Member:
+      type: object
+      properties:
+        member_id:
+          type: string
+          format: uuid
+        membership_no:
+          type: string
+        first_name:
+          type: string
+        middle_name:
+          type: string
+        last_name:
+          type: string
+        phone_primary:
+          type: string
+        email:
+          type: string
+        gender:
+          type: string
+          enum: [MALE, FEMALE, OTHER]
+        marital_status:
+          type: string
+          enum: [SINGLE, MARRIED, DIVORCED, WIDOWED]
+        member_type:
+          type: string
+          enum: [INDIVIDUAL, GOV_EMP, NGO, SME]
+        monthly_income:
+          type: number
+        status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, CLOSED]
+          
+    Account:
+      type: object
+      properties:
+        account_id:
+          type: string
+        member_id:
+          type: string
+        product_code:
+          type: string
+        balance:
+          type: number
+        lien_amount:
+          type: number
+        available_balance:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+        version:
+          type: integer
+          
+    Transaction:
+      type: object
+      properties:
+        txn_id:
+          type: string
+        account_id:
+          type: string
+        txn_type:
+          type: string
+          enum: [DEPOSIT, WITHDRAWAL]
+        amount:
+          type: number
+        balance_after:
+          type: number
+        reference:
+          type: string
+        performed_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          
+    Loan:
+      type: object
+      properties:
+        loan_id:
+          type: string
+        member_id:
+          type: string
+        product_code:
+          type: string
+        applied_amount:
+          type: number
+        approved_amount:
+          type: number
+        term_months:
+          type: integer
+        interest_rate:
+          type: number
+        workflow_status:
+          type: string
+          enum: [PENDING, UNDER_REVIEW, APPROVED, REJECTED]
+          
+paths:
+  # ==================== AUTH ====================
+  /auth/login:
+    post:
+      summary: Login (Staff or Member)
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              staff:
+                value:
+                  actor: STAFF
+                  identifier: admin_1763847546518
+                  password: uudlQ/niFtQYTBBMIMl3
+              member:
+                value:
+                  actor: MEMBER
+                  identifier: "+251911234567"
+                  password: member123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid credentials
+          
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: New access token issued
+          
+  /auth/request-otp:
+    post:
+      summary: Request OTP for password reset
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+      responses:
+        '200':
+          description: OTP sent
+          
+  /auth/verify-otp:
+    post:
+      summary: Verify OTP and reset password
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [otp_request_id, code, new_password]
+              properties:
+                otp_request_id:
+                  type: string
+                code:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '200':
+          description: Password reset successful
+          
+  /auth/change-password:
+    post:
+      summary: Change own password
+      tags: [Authentication]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '200':
+          description: Password changed
+          
+  # ==================== MEMBERS ====================
+  /members:
+    get:
+      summary: List members (Staff only)
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, SUSPENDED, CLOSED]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Members list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Member'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                    
+    post:
+      summary: Create member (Teller/Manager/Admin)
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [first_name, last_name, phone_primary, gender, marital_status, member_type, password]
+      responses:
+        '201':
+          description: Member created
+          
+  /members/{memberId}:
+    get:
+      summary: Get member details
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Member details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+                
+    put:
+      summary: Update member (Manager/Admin)
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Member'
+      responses:
+        '200':
+          description: Member updated
+          
+    delete:
+      summary: Delete member (Admin only)
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Member deleted
+          
+  /members/{memberId}/activate:
+    post:
+      summary: Activate member (Manager/Admin)
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Member activated
+          
+  /members/{memberId}/suspend:
+    post:
+      summary: Suspend member (Manager/Admin)
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Member suspended
+          
+  /members/{memberId}/upload:
+    post:
+      summary: Upload member documents
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                profile_photo:
+                  type: string
+                  format: binary
+                id_card:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Documents uploaded
+          
+  /members/{memberId}/beneficiaries:
+    post:
+      summary: Add beneficiary
+      tags: [Members]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [full_name, relationship, phone]
+              properties:
+                full_name:
+                  type: string
+                relationship:
+                  type: string
+                phone:
+                  type: string
+                id_front:
+                  type: string
+                  format: binary
+                id_back:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Beneficiary added
+          
+  # ==================== ACCOUNTS ====================
+  /accounts:
+    get:
+      summary: List accounts (Staff only)
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: member_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, FROZEN, CLOSED]
+        - name: product_code
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Accounts list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                    
+    post:
+      summary: Create account (Teller/Manager/Admin)
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_id, product_code]
+              properties:
+                member_id:
+                  type: string
+                product_code:
+                  type: string
+                  enum: [SAVINGS, LOAN_ACCOUNT]
+                currency:
+                  type: string
+                  default: ETB
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+                
+  /accounts/member/{memberId}:
+    get:
+      summary: Get accounts for a member
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Member accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+                      
+  /accounts/{accountId}:
+    get:
+      summary: Get account details
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Account details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+                
+    put:
+      summary: Update account (Manager/Admin)
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [ACTIVE, FROZEN, CLOSED]
+                lien_amount:
+                  type: number
+      responses:
+        '200':
+          description: Account updated
+          
+  /accounts/{accountId}/close:
+    post:
+      summary: Close account (Manager/Admin)
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Account closed
+          
+  /accounts/{accountId}/freeze:
+    post:
+      summary: Freeze account (Manager/Admin)
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Account frozen
+          
+  /accounts/{accountId}/unfreeze:
+    post:
+      summary: Unfreeze account (Manager/Admin)
+      tags: [Accounts]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Account unfrozen
+                
+  # ==================== TRANSACTIONS ====================
+  /transactions:
+    get:
+      summary: List transactions
+      tags: [Transactions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: account_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Transactions list
+          
+  /transactions/deposit:
+    post:
+      summary: Post deposit (Teller)
+      tags: [Transactions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [account_id, amount]
+              properties:
+                account_id:
+                  type: string
+                amount:
+                  type: number
+                reference:
+                  type: string
+                receipt:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Deposit successful
+          
+  /transactions/withdraw:
+    post:
+      summary: Post withdrawal (Teller)
+      tags: [Transactions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [account_id, amount]
+              properties:
+                account_id:
+                  type: string
+                amount:
+                  type: number
+                reference:
+                  type: string
+      responses:
+        '201':
+          description: Withdrawal successful
+          
+  # ==================== LOANS ====================
+  /loans:
+    post:
+      summary: Create loan application
+      tags: [Loans]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_id, product_code, applied_amount, term_months]
+              properties:
+                member_id:
+                  type: string
+                product_code:
+                  type: string
+                applied_amount:
+                  type: number
+                term_months:
+                  type: integer
+                interest_rate:
+                  type: number
+                purpose_description:
+                  type: string
+      responses:
+        '201':
+          description: Loan application created
+          
+  /loans/{loanId}:
+    get:
+      summary: Get loan details
+      tags: [Loans]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Loan details
+          
+  /loans/{loanId}/check-eligibility:
+    post:
+      summary: Run gatekeeper checks
+      tags: [Loans]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Eligibility result
+          
+  /loans/{loanId}/approve:
+    post:
+      summary: Approve loan (Manager/Credit Officer)
+      tags: [Loans]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved_amount, term_months, interest_rate]
+              properties:
+                approved_amount:
+                  type: number
+                term_months:
+                  type: integer
+                interest_rate:
+                  type: number
+                lien_account_id:
+                  type: string
+                lien_amount:
+                  type: number
+      responses:
+        '200':
+          description: Loan approved
+          
+  /loans/{loanId}/schedule:
+    get:
+      summary: Get repayment schedule
+      tags: [Loans]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Repayment schedule
+          
+  /loans/{loanId}/guarantors:
+    post:
+      summary: Add guarantor
+      tags: [Loans]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [full_name, phone]
+              properties:
+                full_name:
+                  type: string
+                phone:
+                  type: string
+                relationship:
+                  type: string
+                address:
+                  type: string
+                guaranteed_amount:
+                  type: number
+                duty_value:
+                  type: number
+                profile_photo:
+                  type: string
+                  format: binary
+                id_front:
+                  type: string
+                  format: binary
+                id_back:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Guarantor added
+          
+  /loans/{loanId}/collateral:
+    post:
+      summary: Add collateral
+      tags: [Loans]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [type, description, estimated_value]
+              properties:
+                type:
+                  type: string
+                description:
+                  type: string
+                estimated_value:
+                  type: number
+                document:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Collateral added
+          
+  /loans/calculate-installment:
+    post:
+      summary: Calculate loan installment
+      tags: [Loans]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [principal, interest_rate, interest_type, term_months]
+              properties:
+                principal:
+                  type: number
+                interest_rate:
+                  type: number
+                interest_type:
+                  type: string
+                  enum: [FLAT, DECLINING]
+                term_months:
+                  type: integer
+      responses:
+        '200':
+          description: Installment calculation
+          
+  # ==================== COLLATERAL ====================
+  /collateral/{collateralId}/verify:
+    post:
+      summary: Verify collateral (Credit Officer)
+      tags: [Collateral]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: collateralId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [VERIFIED, REJECTED]
+                notes:
+                  type: string
+                verified_value:
+                  type: number
+      responses:
+        '200':
+          description: Collateral verified
+          
+  /collateral/loan/{loanId}/summary:
+    get:
+      summary: Get collateral summary for loan
+      tags: [Collateral]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Collateral summary
+          
+  # ==================== GUARANTORS ====================
+  /guarantors/{guarantorId}/verify:
+    post:
+      summary: Verify guarantor (Credit Officer)
+      tags: [Guarantors]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: guarantorId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [VERIFIED, REJECTED]
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Guarantor verified
+          
+  /guarantors/loan/{loanId}/summary:
+    get:
+      summary: Get guarantor summary for loan
+      tags: [Guarantors]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Guarantor summary
+          
+  # ==================== USERS ====================
+  /users:
+    get:
+      summary: List staff users (Admin)
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Users list
+          
+    post:
+      summary: Create staff user (Admin)
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, role, email, phone]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+                  enum: [ADMIN, TELLER, CREDIT_OFFICER, MANAGER, AUDITOR]
+                email:
+                  type: string
+                phone:
+                  type: string
+      responses:
+        '201':
+          description: User created
+          
+  /users/{userId}:
+    get:
+      summary: Get user details
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User details
+          
+  # ==================== ADMIN ====================
+  /admin/users/{userId}/reset-password:
+    post:
+      summary: Reset user password (Admin)
+      tags: [Admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  new_password:
+                    type: string
+                    
+  /admin/audit-logs:
+    get:
+      summary: Get audit logs (Admin/Auditor)
+      tags: [Admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: entity
+          in: query
+          schema:
+            type: string
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Audit logs
+          
+  # ==================== REPORTS ====================
+  /reports/summary:
+    get:
+      summary: Portfolio summary
+      tags: [Reports]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Summary metrics
+          
+  /reports/transactions:
+    get:
+      summary: Transaction report
+      tags: [Reports]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Transaction report
+          
+  # ==================== CLIENT (Telegram Mini App) ====================
+  /client/me:
+    get:
+      summary: Get client profile & dashboard
+      tags: [Client]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Client profile
+          
+  /client/accounts:
+    get:
+      summary: List client accounts
+      tags: [Client]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Client accounts
+          
+  /client/accounts/{accountId}/transactions:
+    get:
+      summary: Get account statement
+      tags: [Client]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Account transactions
+          
+  /client/loans:
+    get:
+      summary: List client loans
+      tags: [Client]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Client loans
+          
+  /client/loans/{loanId}/schedule:
+    get:
+      summary: Get loan repayment schedule
+      tags: [Client]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: loanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Repayment schedule
+          
+  # ==================== NOTIFICATIONS ====================
+  /notifications/send-notification:
+    post:
+      summary: Send notification to Telegram bot
+      tags: [Notifications]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chat_id, message]
+              properties:
+                chat_id:
+                  type: string
+                message:
+                  type: string
+                attachments:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Notification sent
+          
+  # ==================== HEALTH ====================
+  /health:
+    get:
+      summary: Health check
+      tags: [System]
+      responses:
+        '200':
+          description: System healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]

@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: alefdelta_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-alef_delta_sacco}
+      MYSQL_USER: ${MYSQL_USER:-alefdelta_admin}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-~HNiBgmo56wag~y3}
+    expose:
+      - "3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - alefdelta_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  # Adminer - Database GUI
+  # adminer:
+  #   image: adminer:latest
+  #   container_name: alefdelta_adminer
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8082:8080"
+  #   networks:
+  #     - alefdelta_network
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #   environment:
+  #     ADMINER_DEFAULT_SERVER: mysql
+
+  # Backend API
+  api:
+    build:
+      context: ./alef_delta_sacco_backend
+      dockerfile: Dockerfile
+    container_name: alefdelta_api
+    restart: unless-stopped
+    expose:
+      - "4000"
+    env_file:
+      - ./alef_delta_sacco_backend/.env
+    volumes:
+      - ./alef_delta_sacco_backend/uploads:/app/uploads
+    networks:
+      - alefdelta_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    # Entrypoint script handles migrations
+
+  # Frontend UI (Staff Portal)
+  frontend:
+    build:
+      context: ./alef-delta-hub
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://sacco-api.alefdelta.com/api}
+    container_name: alefdelta_frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    env_file:
+      - ./alef-delta-hub/.env
+    networks:
+      - alefdelta_network
+    depends_on:
+      - api
+
+  # Member Portal (Telegram Mini App UI)
+  member_portal:
+    build:
+      context: ./alef_delta_sacco_member_portal
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://sacco-api.alefdelta.com/api}
+    container_name: alefdelta_member_portal
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - alefdelta_network
+    depends_on:
+      - api
+
+  # Caddy reverse proxy with automatic HTTPS via Let's Encrypt
+  caddy:
+    image: caddy:2-alpine
+    container_name: alefdelta_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - alefdelta_network
+    depends_on:
+      - api
+      - frontend
+      - member_portal
+
+volumes:
+  mysql_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+networks:
+  alefdelta_network:
+    driver: bridge
+
