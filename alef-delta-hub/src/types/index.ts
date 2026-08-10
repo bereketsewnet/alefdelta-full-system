@@ -186,6 +186,13 @@ export interface LoanProduct {
   max_term_months: number;
   penalty_rate: number;
   category?: string | null;
+  loan_category?: 'STANDARD' | 'VEHICLE' | 'HOUSING' | null;
+  min_savings_duration_months?: number | null;
+  loan_amount_min_etb?: number | null;
+  loan_amount_max_etb?: number | null;
+  required_pre_savings_pct?: number | null;
+  eligible_savings_types?: string | null;
+  requires_lump_sum_pre_savings?: boolean;
 }
 
 // Account Product
@@ -286,13 +293,18 @@ export interface ChartDataPoint {
   label?: string;
 }
 
-// Eligibility Check Result
+// Eligibility Check Result (matches gatekeeper output)
+export interface EligibilityCheckItem {
+  name: string;
+  pass: boolean;
+  data?: Record<string, unknown>;
+}
+
 export interface EligibilityCheck {
   passed: boolean;
-  membership_duration_check: boolean;
-  active_status_check: boolean;
-  savings_check: boolean;
-  message?: string;
+  checks: EligibilityCheckItem[];
+  installment: number;
+  maxInstallment: number;
 }
 
 // Affordability Check Result

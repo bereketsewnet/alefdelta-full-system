@@ -43,6 +43,15 @@ export const collateralSchema = Joi.object({
   estimated_value: Joi.number().positive().required()
 });
 
+export const checkEligibilitySchema = Joi.object({
+  member_id: Joi.string().required(),
+  product_code: Joi.string().required(),
+  applied_amount: Joi.number().positive().required(),
+  term_months: Joi.number().integer().min(1).required(),
+  interest_rate: Joi.number().positive().optional(),
+  interest_type: Joi.string().valid('FLAT', 'DECLINING').optional()
+});
+
 export const updateLoanStatusSchema = Joi.object({
   workflow_status: Joi.string().valid('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED').required()
 });

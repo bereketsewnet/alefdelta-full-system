@@ -2,6 +2,7 @@ import httpError from '../../core/utils/httpError.js';
 import {
   createLoan,
   checkLoanEligibility,
+  preCheckEligibility,
   approveLoan,
   buildSchedule,
   getLoanOrFail,
@@ -17,6 +18,7 @@ import {
   installmentSchema,
   guarantorSchema,
   collateralSchema,
+  checkEligibilitySchema,
   updateLoanStatusSchema
 } from './loan.validators.js';
 
@@ -70,6 +72,16 @@ export async function handleCreateLoan(req, res, next) {
 export async function handleCheckEligibility(req, res, next) {
   try {
     const result = await checkLoanEligibility(req.params.id);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function handlePreCheckEligibility(req, res, next) {
+  try {
+    const payload = validate(checkEligibilitySchema, req.body);
+    const result = await preCheckEligibility(payload);
     res.json(result);
   } catch (error) {
     next(error);

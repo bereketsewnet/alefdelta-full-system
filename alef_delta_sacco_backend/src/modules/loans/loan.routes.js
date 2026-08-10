@@ -7,6 +7,7 @@ import {
   handleGetLoan,
   handleCreateLoan,
   handleCheckEligibility,
+  handlePreCheckEligibility,
   handleApproveLoan,
   handleGetSchedule,
   handleCalculateInstallment,
@@ -21,6 +22,13 @@ const router = Router();
 router.get('/', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER'), handleListLoans);
 // Get single loan
 router.get('/:id', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER'), handleGetLoan);
+// Pre-check eligibility (before creating loan)
+router.post(
+  '/check-eligibility',
+  authenticate,
+  requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER'),
+  handlePreCheckEligibility
+);
 // Create loan
 router.post('/', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER'), handleCreateLoan);
 router.post(

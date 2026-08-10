@@ -2,6 +2,8 @@
     email nathansadrasha@gmail.com
 }
 
+# ---- Alef Delta SACCO (in-network) ----
+
 sacco-api.alefdelta.com {
     reverse_proxy api:4000
 }
@@ -12,4 +14,8 @@ sacco-mp.alefdelta.com {
 
 corebank.alefdelta.com {
     reverse_proxy frontend:80
+}
+
+sacco-registration.alefdelta.com {
+    redir https://sacco-mp.alefdelta.com/auth/register permanent
 }

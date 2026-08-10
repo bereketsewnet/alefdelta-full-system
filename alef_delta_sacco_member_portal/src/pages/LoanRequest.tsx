@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, DollarSign, Languages, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, DollarSign, Languages, CheckCircle2, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +16,68 @@ import { toast } from '@/hooks/use-toast';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks/useAuth';
 import { useQuery } from '@tanstack/react-query';
+
+function LoanTiersGuide() {
+  const { data: products = [], isLoading } = useQuery({
+    queryKey: ['loan-products'],
+    queryFn: () => api.client.getLoanProducts(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const tierProducts = products.filter((p: any) => p.loan_category);
+
+  if (isLoading || tierProducts.length === 0) return null;
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <Info className="h-4 w-4 text-primary" />
+        <h2 className="font-semibold text-sm">Available Loan Tiers</h2>
+      </div>
+      <div className="overflow-x-auto rounded-lg border bg-card">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="text-left p-2 font-medium">Loan Type</th>
+              <th className="text-right p-2 font-medium">Ceiling (ETB)</th>
+              <th className="text-right p-2 font-medium">Rate</th>
+              <th className="text-right p-2 font-medium">Max Term</th>
+              <th className="text-right p-2 font-medium">Min Savings</th>
+              <th className="text-right p-2 font-medium">Pre-Savings</th>
+              <th className="text-right p-2 font-medium">Share Buy</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tierProducts.map((p: any) => (
+              <tr key={p.code} className="border-t">
+                <td className="p-2 font-medium">{p.name}</td>
+                <td className="p-2 text-right">
+                  {p.loan_amount_max_etb != null
+                    ? Number(p.loan_amount_max_etb).toLocaleString()
+                    : '—'}
+                </td>
+                <td className="p-2 text-right">{p.interest_rate}%</td>
+                <td className="p-2 text-right">{p.max_term_months} mo</td>
+                <td className="p-2 text-right">
+                  {p.min_savings_duration_months != null ? `${p.min_savings_duration_months} mo` : '—'}
+                </td>
+                <td className="p-2 text-right">
+                  {p.required_pre_savings_pct != null ? `${p.required_pre_savings_pct}%` : '—'}
+                </td>
+                <td className="p-2 text-right">
+                  {p.required_share_purchase_pct != null ? `${p.required_share_purchase_pct}%` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground mt-2">
+        Pre-Savings and Share Buy percentages are based on the requested loan amount.
+      </p>
+    </div>
+  );
+}
 
 type LoanRequestFormData = {
   loan_purpose: string;
@@ -267,6 +329,12 @@ export default function LoanRequest() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8 max-w-2xl">
+
+        {/* Loan Tiers Guide */}
+        {isAuthenticated && (
+          <LoanTiersGuide />
+        )}
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <Card>

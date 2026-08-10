@@ -10,7 +10,7 @@ import {
   listLoans
 } from './loan.repository.js';
 import { withTransaction, query } from '../../core/db.js';
-import { findAccountById } from '../accounts/account.repository.js';
+import { findAccountById, listAccountsByMember } from '../accounts/account.repository.js';
 import { updateAccountBalance } from '../accounts/account.service.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
 import { addGuarantor } from '../guarantors/guarantor.repository.js';
@@ -32,7 +32,13 @@ export async function createLoan(payload) {
   if (!product) {
     throw httpError(400, 'Loan product not found');
   }
-  const gatekeeperResult = runGatekeeper(member, payload, product);
+  const memberAccounts = await listAccountsByMember(payload.member_id);
+  const gatekeeperResult = runGatekeeper(member, payload, product, memberAccounts);
+  
+  if (!gatekeeperResult.passed) {
+    throw httpError(400, 'Loan eligibility checks failed', gatekeeperResult.checks);
+  }
+  
   const loanId = uuid();
   await createLoanApplication({
     loan_id: loanId,
@@ -45,10 +51,24 @@ export async function createLoan(payload) {
     interest_type: payload.interest_type || product.interest_type,
     purpose_description: payload.purpose_description,
     repayment_frequency: payload.repayment_frequency || 'MONTHLY',
-    workflow_status: gatekeeperResult.passed ? 'UNDER_REVIEW' : 'PENDING'
+    workflow_status: 'UNDER_REVIEW'
   });
   await updateLoan(loanId, { eligibility_snapshot: JSON.stringify(gatekeeperResult) });
   return findLoanById(loanId);
+}
+
+export async function preCheckEligibility(payload) {
+  const member = await findMemberById(payload.member_id);
+  if (!member) {
+    throw httpError(404, 'Member not found');
+  }
+  const product = await findLoanProductByCode(payload.product_code);
+  if (!product) {
+    throw httpError(400, 'Loan product not found');
+  }
+  const memberAccounts = await listAccountsByMember(payload.member_id);
+  const result = runGatekeeper(member, payload, product, memberAccounts);
+  return result;
 }
 
 export async function checkLoanEligibility(loanId) {
@@ -58,6 +78,7 @@ export async function checkLoanEligibility(loanId) {
   }
   const member = await findMemberById(loan.member_id);
   const product = await findLoanProductByCode(loan.product_code);
+  const memberAccounts = await listAccountsByMember(loan.member_id);
   const result = runGatekeeper(
     member,
     {
@@ -66,7 +87,8 @@ export async function checkLoanEligibility(loanId) {
       interest_type: loan.interest_type,
       term_months: loan.term_months
     },
-    product
+    product,
+    memberAccounts
   );
   await updateLoan(loanId, { eligibility_snapshot: JSON.stringify(result) });
   return result;

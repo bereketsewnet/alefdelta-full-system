@@ -6,14 +6,14 @@ import * as z from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { User, Member } from "@/types";
 import { api } from "@/lib/api";
-import type { LoanProduct } from "@/types";
+import type { LoanProduct, EligibilityCheck } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, FileText, Search, X } from "lucide-react";
+import { ArrowLeft, FileText, Search, X, CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CurrencyDisplay } from "@/components/shared/CurrencyDisplay";
 import { calculateFlatInterest, calculateDecliningInterest } from "@/lib/utils/financial";
@@ -35,6 +35,8 @@ const NewLoanApplication = () => {
   const [selectedProduct, setSelectedProduct] = useState<LoanProduct | null>(null);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [eligibilityResult, setEligibilityResult] = useState<EligibilityCheck | null>(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -106,6 +108,37 @@ const NewLoanApplication = () => {
 
   const flatCalc = amount > 0 && term > 0 ? calculateFlatInterest(amount, interestRate, term) : null;
   const decliningCalc = amount > 0 && term > 0 ? calculateDecliningInterest(amount, interestRate, term) : null;
+
+  const checkEligibility = async () => {
+    const data = form.getValues();
+    if (!data.member_id || !data.product_code || !data.applied_amount || !data.term_months) {
+      toast({
+        title: "Incomplete Form",
+        description: "Please select a member, product, amount and term first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setEligibilityLoading(true);
+    setEligibilityResult(null);
+    try {
+      const res = await api.post<EligibilityCheck>('/loans/check-eligibility', {
+        member_id: data.member_id,
+        product_code: data.product_code,
+        applied_amount: Number(data.applied_amount),
+        term_months: Number(data.term_months),
+      });
+      setEligibilityResult(res.data);
+    } catch (error: any) {
+      toast({
+        title: "Eligibility Check Failed",
+        description: error.response?.data?.message || "Could not run eligibility check.",
+        variant: "destructive",
+      });
+    } finally {
+      setEligibilityLoading(false);
+    }
+  };
 
   const onSubmit = async (data: LoanFormData) => {
     try {
@@ -267,21 +300,58 @@ const NewLoanApplication = () => {
 
                     {selectedProduct && (
                       <div className="p-4 bg-muted rounded-lg text-sm space-y-1">
-                        <p>
-                          <span className="font-medium">Category:</span> {selectedProduct.category}
-                        </p>
+                        {selectedProduct.category && (
+                          <p><span className="font-medium">Category:</span> {selectedProduct.category}</p>
+                        )}
                         <p>
                           <span className="font-medium">Interest Type:</span>{" "}
                           {selectedProduct.interest_type}
                         </p>
                         <p>
                           <span className="font-medium">Term Range:</span>{" "}
-                          {selectedProduct.min_term_months} - {selectedProduct.max_term_months} months
+                          {selectedProduct.min_term_months} – {selectedProduct.max_term_months} months
                         </p>
                         <p>
                           <span className="font-medium">Penalty Rate:</span>{" "}
                           {selectedProduct.penalty_rate}%
                         </p>
+
+                        {/* Tier / policy requirements */}
+                        {(selectedProduct.min_savings_duration_months != null ||
+                          selectedProduct.loan_amount_max_etb != null ||
+                          selectedProduct.required_pre_savings_pct != null ||
+                          selectedProduct.eligible_savings_types) && (
+                          <div className="mt-3 pt-3 border-t border-border space-y-1">
+                            <p className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">Member Requirements</p>
+                            {selectedProduct.min_savings_duration_months != null && (
+                              <p><span className="font-medium">Min Savings Duration:</span> {selectedProduct.min_savings_duration_months} months</p>
+                            )}
+                            {(selectedProduct.loan_amount_min_etb != null || selectedProduct.loan_amount_max_etb != null) && (
+                              <p>
+                                <span className="font-medium">Loan Range:</span>{" "}
+                                {selectedProduct.loan_amount_min_etb != null
+                                  ? `ETB ${Number(selectedProduct.loan_amount_min_etb).toLocaleString()}`
+                                  : 'ETB 0'}{" "}
+                                –{" "}
+                                {selectedProduct.loan_amount_max_etb != null
+                                  ? `ETB ${Number(selectedProduct.loan_amount_max_etb).toLocaleString()}`
+                                  : 'No limit'}
+                              </p>
+                            )}
+                            {selectedProduct.required_pre_savings_pct != null && (
+                              <p><span className="font-medium">Pre-Savings Required:</span> {selectedProduct.required_pre_savings_pct}% of loan amount</p>
+                            )}
+                            {selectedProduct.eligible_savings_types && (
+                              <p>
+                                <span className="font-medium">Eligible Savings Accounts:</span>{" "}
+                                {selectedProduct.eligible_savings_types.replace(/_/g, ' ').replace(/,/g, ', ')}
+                              </p>
+                            )}
+                            {selectedProduct.requires_lump_sum_pre_savings && (
+                              <p className="text-amber-600 font-medium">Lump-sum pre-savings deposit required</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -367,6 +437,60 @@ const NewLoanApplication = () => {
                       )}
                     />
 
+                    <div className="flex gap-4 pt-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={checkEligibility}
+                        disabled={eligibilityLoading}
+                        className="flex-1"
+                      >
+                        {eligibilityLoading ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <AlertCircle className="mr-2 h-4 w-4" />
+                        )}
+                        Check Eligibility
+                      </Button>
+                    </div>
+
+                    {eligibilityResult && (
+                      <div className={`p-4 rounded-lg border ${eligibilityResult.passed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                        <div className="flex items-center gap-2 mb-3">
+                          {eligibilityResult.passed ? (
+                            <CheckCircle2 className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <XCircle className="h-5 w-5 text-red-600" />
+                          )}
+                          <span className={`font-semibold ${eligibilityResult.passed ? 'text-green-700' : 'text-red-700'}`}>
+                            {eligibilityResult.passed ? 'All Eligibility Checks Passed' : 'Eligibility Checks Failed'}
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {eligibilityResult.checks.map((check) => (
+                            <div key={check.name} className="flex items-start gap-2 text-sm">
+                              {check.pass ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                              )}
+                              <div>
+                                <span className={check.pass ? 'text-green-700' : 'text-red-700'}>
+                                  {check.name === 'status' && 'Member status is ACTIVE'}
+                                  {check.name === 'income' && 'Member has monthly income'}
+                                  {check.name === 'affordability' && `Monthly installment (ETB ${(check.data as any)?.installment?.toLocaleString() || 'N/A'}) does not exceed 1/3 of monthly income (ETB ${(check.data as any)?.maxInstallment?.toLocaleString() || 'N/A'})`}
+                                  {check.name === 'savings_duration' && `Savings duration: ${(check.data as any)?.months_saved || 0} months (required: ${(check.data as any)?.required || 0} months)`}
+                                  {check.name === 'pre_savings' && `Pre-savings balance: ETB ${(check.data as any)?.savings_balance?.toLocaleString() || '0'} (required: ETB ${(check.data as any)?.required_balance?.toLocaleString() || '0'})`}
+                                  {check.name === 'loan_ceiling' && `Loan amount exceeds ceiling of ETB ${(check.data as any)?.ceiling?.toLocaleString() || 'N/A'}`}
+                                  {check.name === 'loan_floor' && `Loan amount is below minimum of ETB ${(check.data as any)?.floor?.toLocaleString() || 'N/A'}`}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex gap-4 pt-4">
                       <Button type="submit" className="flex-1">
                         <FileText className="mr-2 h-4 w-4" />
@@ -450,13 +574,15 @@ const NewLoanApplication = () => {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Next Steps</CardTitle>
+                <CardTitle className="text-base">Process Steps</CardTitle>
               </CardHeader>
               <CardContent>
                 <ol className="text-sm space-y-2 list-decimal list-inside text-muted-foreground">
+                  <li className={eligibilityResult?.passed ? "text-green-600 font-medium" : ""}>
+                    {eligibilityResult?.passed ? "✓ " : ""}Check eligibility
+                  </li>
                   <li>Submit application for review</li>
-                  <li>Verify collateral and guarantors</li>
-                  <li>Complete eligibility checks</li>
+                  <li>Add guarantors and collateral</li>
                   <li>Await manager approval</li>
                   <li>Loan disbursement</li>
                 </ol>

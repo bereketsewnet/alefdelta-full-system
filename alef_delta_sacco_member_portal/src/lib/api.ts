@@ -671,6 +671,15 @@ import type {
       },
       
       /**
+       * Get all loan products (tiers)
+       * GET /api/loan-products
+       */
+      getLoanProducts: async (): Promise<any[]> => {
+        const response = await apiFetch<{ data: any[] }>('/loan-products');
+        return response.data || [];
+      },
+
+      /**
        * Get member loans
        * GET /api/client/loans
        */

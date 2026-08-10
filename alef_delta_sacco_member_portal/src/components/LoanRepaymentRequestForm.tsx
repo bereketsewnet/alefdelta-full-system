@@ -177,7 +177,7 @@ export function LoanRepaymentRequestForm({
                       </SelectTrigger>
                       <SelectContent>
                         {activeLoans.length === 0 ? (
-                          <SelectItem value="" disabled>No active loans available</SelectItem>
+                          <SelectItem value="__none__" disabled>No active loans available</SelectItem>
                         ) : (
                           activeLoans.map((loan) => (
                             <SelectItem key={loan.id} value={loan.id}>
