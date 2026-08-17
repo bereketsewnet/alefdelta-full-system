@@ -8,7 +8,7 @@ const accountState = {
 };
 
 const insertTransactionMock = jest.fn();
-const auditLogMock = jest.fn();
+const auditLogMock = jest.fn(async () => undefined);
 
 let queue = Promise.resolve();
 const connection = {
@@ -18,6 +18,8 @@ const connection = {
 };
 
 jest.unstable_mockModule('../../src/core/db.js', () => ({
+  query: jest.fn(),
+  execute: jest.fn(),
   withTransaction: (handler) => {
     queue = queue.then(() => handler(connection));
     return queue;
@@ -42,8 +44,15 @@ jest.unstable_mockModule('../../src/modules/accounts/account.service.js', () => 
 
 jest.unstable_mockModule('../../src/modules/transactions/transaction.repository.js', () => ({
   insertTransaction: insertTransactionMock,
-  listTransactions: jest.fn()
+  listTransactions: jest.fn(),
+  listTransactionsByMember: jest.fn(),
+  findTransactionById: jest.fn(),
+  updateTransactionReceipt: jest.fn()
 }));
+
+jest.unstable_mockModule('../../src/modules/members/member.repository.js', () => ({ findMemberById: jest.fn(async () => null) }));
+jest.unstable_mockModule('../../src/modules/accounts/interest-processor.js', () => ({ updateMonthlyBalanceTracking: jest.fn(async () => undefined) }));
+jest.unstable_mockModule('../../src/modules/members/member-lifecycle-processor.js', () => ({ updateMemberActivity: jest.fn(async () => undefined) }));
 
 jest.unstable_mockModule('../../src/modules/admin/audit.repository.js', () => ({
   insertAuditLog: auditLogMock

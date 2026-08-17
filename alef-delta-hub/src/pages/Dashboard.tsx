@@ -14,6 +14,7 @@ import {
   CheckCircle,
   ArrowUpRight,
   ArrowDownRight,
+  FileText,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -202,6 +203,17 @@ const Dashboard = () => {
 
   const getRoleDashboard = () => {
     switch (user.role) {
+      case "BOARD_MEMBER":
+        return (
+          <div className="space-y-6">
+            <div><h2 className="text-2xl font-bold mb-2">Board Approval Dashboard</h2><p className="text-muted-foreground">Review loan applications and record your independent decision.</p></div>
+            <div className="grid gap-6 md:grid-cols-2">
+              <KPICard title="Loans Awaiting Review" value={kpi.pending_approvals} icon={FileText} variant="warning" />
+              <KPICard title="Active Members" value={kpi.active_members} icon={Users} variant="success" />
+            </div>
+            <Card><CardHeader><CardTitle>Loan approvals</CardTitle><CardDescription>Open the loan list to review applications, schedules, guarantors, and collateral before approving or rejecting.</CardDescription></CardHeader><CardContent><Button onClick={() => navigate('/loans')}>Review loan applications</Button></CardContent></Card>
+          </div>
+        );
       case "TELLER":
         return (
           <div className="space-y-6">

@@ -381,6 +381,7 @@ const UserManagement = () => {
                         <SelectItem value="TELLER">Teller</SelectItem>
                         <SelectItem value="CREDIT_OFFICER">Credit Officer</SelectItem>
                         <SelectItem value="MANAGER">Manager</SelectItem>
+                        <SelectItem value="BOARD_MEMBER">Board Member</SelectItem>
                         <SelectItem value="ADMIN">Admin</SelectItem>
                       </SelectContent>
                     </Select>
@@ -538,6 +539,7 @@ const UserManagement = () => {
                         <SelectItem value="TELLER">Teller</SelectItem>
                         <SelectItem value="CREDIT_OFFICER">Credit Officer</SelectItem>
                         <SelectItem value="MANAGER">Manager</SelectItem>
+                        <SelectItem value="BOARD_MEMBER">Board Member</SelectItem>
                         <SelectItem value="ADMIN">Admin</SelectItem>
                       </SelectContent>
                     </Select>

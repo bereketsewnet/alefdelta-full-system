@@ -118,6 +118,10 @@ export async function updateLoanBalanceFields(loanId, updates, connection) {
     fields.push('total_penalty = ?');
     values.push(updates.total_penalty);
   }
+  if (updates.penalty_due !== undefined) {
+    fields.push('penalty_due = ?');
+    values.push(updates.penalty_due);
+  }
   if (updates.last_payment_date !== undefined) {
     fields.push('last_payment_date = ?');
     values.push(updates.last_payment_date);
@@ -147,5 +151,4 @@ export async function updateLoanBalanceFields(loanId, updates, connection) {
     await execute(sql, values);
   }
 }
-
 

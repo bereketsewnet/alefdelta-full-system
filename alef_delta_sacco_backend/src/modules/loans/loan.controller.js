@@ -1,16 +1,19 @@
 import httpError from '../../core/utils/httpError.js';
+import { quoteLoanInsurance } from './insurance.js';
 import {
   createLoan,
   checkLoanEligibility,
   preCheckEligibility,
   approveLoan,
   buildSchedule,
+  getPersistedSchedule,
   getLoanOrFail,
   calculateInstallment,
   addLoanGuarantor,
   addLoanCollateral,
   getLoans,
   updateLoanStatus
+  , getLoanApprovalStatus
 } from './loan.service.js';
 import {
   createLoanSchema,
@@ -62,7 +65,7 @@ export async function handleGetLoan(req, res, next) {
 export async function handleCreateLoan(req, res, next) {
   try {
     const payload = validate(createLoanSchema, req.body);
-    const loan = await createLoan(payload);
+    const loan = await createLoan(payload, req.user);
     res.status(201).json(loan);
   } catch (error) {
     next(error);
@@ -71,7 +74,7 @@ export async function handleCreateLoan(req, res, next) {
 
 export async function handleCheckEligibility(req, res, next) {
   try {
-    const result = await checkLoanEligibility(req.params.id);
+    const result = await checkLoanEligibility(req.params.id, req.user);
     res.json(result);
   } catch (error) {
     next(error);
@@ -101,11 +104,19 @@ export async function handleApproveLoan(req, res, next) {
 export async function handleGetSchedule(req, res, next) {
   try {
     const loan = await getLoanOrFail(req.params.id);
-    const schedule = buildSchedule({ loan, startDate: loan.disbursement_date || new Date() });
+    const schedule = await getPersistedSchedule(loan.loan_id);
+    if (!schedule.length) {
+      const preview = buildSchedule({ loan, startDate: loan.disbursement_date || new Date() });
+      return res.json({ schedule: preview });
+    }
     res.json({ schedule });
   } catch (error) {
     next(error);
   }
+}
+
+export async function handleGetApprovalStatus(req, res, next) {
+  try { res.json(await getLoanApprovalStatus(req.params.id)); } catch (error) { next(error); }
 }
 
 export async function handleCalculateInstallment(req, res, next) {
@@ -116,6 +127,10 @@ export async function handleCalculateInstallment(req, res, next) {
   } catch (error) {
     next(error);
   }
+}
+
+export async function handleInsuranceQuote(req, res, next) {
+  try { res.json(await quoteLoanInsurance(req.body)); } catch (error) { next(error); }
 }
 
 export async function handleAddGuarantor(req, res, next) {
@@ -141,10 +156,9 @@ export async function handleAddCollateral(req, res, next) {
 export async function handleUpdateLoanStatus(req, res, next) {
   try {
     const payload = validate(updateLoanStatusSchema, req.body);
-    const loan = await updateLoanStatus(req.params.id, payload.workflow_status, req.user);
+    const loan = await updateLoanStatus(req.params.id, payload.workflow_status, { ...req.user, reason: payload.reason });
     res.json(loan);
   } catch (error) {
     next(error);
   }
 }
-

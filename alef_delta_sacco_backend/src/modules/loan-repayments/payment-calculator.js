@@ -124,27 +124,27 @@ export function calculatePenalty(loan, penaltyRate = 2) {
   const today = dayjs();
   const nextPayment = dayjs(loan.next_payment_date);
   
-  // No penalty if payment is not yet due
-  if (today.isBefore(nextPayment)) {
+  const graceDays = Math.max(0, Number(loan.penalty_grace_days || 0));
+  const overdueDays = today.diff(nextPayment, 'day');
+  // A due date plus grace days is not penalized.
+  if (overdueDays <= graceDays) {
     return { penaltyAmount: 0, missedMonths: 0 };
   }
-  
-  // Calculate months overdue
-  const monthsOverdue = today.diff(nextPayment, 'month');
-  
-  if (monthsOverdue <= 0) {
-    return { penaltyAmount: 0, missedMonths: 0 };
-  }
+  const interval = loan.repayment_frequency === 'WEEKLY' ? 7 : loan.repayment_frequency === 'QUARTERLY' ? 90 : 30;
+  const periodsOverdue = Math.floor((overdueDays - graceDays) / interval) + 1;
   
   // Calculate expected monthly payment
   const expectedPayment = calculateExpectedPayment(loan);
   
-  // Penalty = Expected Monthly Payment × Penalty Rate × Months Overdue
-  const penaltyAmount = expectedPayment.total * (penaltyRate / 100) * monthsOverdue;
+  const escalation = loan.penalty_escalation_enabled ? Number(loan.penalty_escalation_value || penaltyRate) * (periodsOverdue - 1) : 0;
+  const effectiveRate = Number(penaltyRate) + escalation;
+  const penaltyAmount = loan.penalty_mode === 'FIXED'
+    ? Number(loan.penalty_fixed_amount || 0) + escalation
+    : expectedPayment.total * (effectiveRate / 100);
   
   return {
     penaltyAmount: Math.round(penaltyAmount * 100) / 100,
-    missedMonths: monthsOverdue
+    missedMonths: periodsOverdue
   };
 }
 
@@ -211,5 +211,4 @@ export function calculateNextPaymentDate(currentDate, frequency) {
       return date.add(1, 'month').format('YYYY-MM-DD');
   }
 }
-
 

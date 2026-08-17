@@ -20,8 +20,9 @@ router.post('/interest/process', requireAuth, requireRole('ADMIN'), systemContro
 router.post('/inactivity/process', requireAuth, requireRole('ADMIN'), systemController.processInactivity);
 
 // System configuration routes
-router.get('/config', requireAuth, requireRole('ADMIN'), systemController.getSystemConfig);
+router.get('/config', requireAuth, requireRole('ADMIN', 'MANAGER', 'TELLER', 'CREDIT_OFFICER', 'AUDITOR'), systemController.getSystemConfig);
 router.put('/config/:key', requireAuth, requireRole('ADMIN'), systemController.updateSystemConfig);
+router.get('/insurance-rates', requireAuth, requireRole('ADMIN'), systemController.getInsuranceRates);
+router.put('/insurance-rates/:id', requireAuth, requireRole('ADMIN'), systemController.updateInsuranceRate);
 
 export default router;
-

@@ -10,7 +10,7 @@ import {
   listLoans
 } from './loan.repository.js';
 import { withTransaction, query } from '../../core/db.js';
-import { findAccountById, listAccountsByMember } from '../accounts/account.repository.js';
+import { findAccountById, listEligibilityAccountsByMember } from '../accounts/account.repository.js';
 import { updateAccountBalance } from '../accounts/account.service.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
 import { addGuarantor } from '../guarantors/guarantor.repository.js';
@@ -22,8 +22,20 @@ import {
   runGatekeeper,
   buildSchedule as buildScheduleHelper
 } from './gatekeeper.js';
+import { buildDecliningSchedule } from './amortization.js';
+import { replaceLoanSchedule, listLoanSchedule } from './amortization.repository.js';
+import { snapshotBoardVoters, recordVote, getApprovalStatus, resetApprovalVotes } from './approval.repository.js';
+import { quoteLoanInsurance } from './insurance.js';
+import { findTierById } from '../loan-products/loan-tier.repository.js';
+import { createEligibilityEvaluation, findEligibilityEvaluation, listLoanEligibilityEvaluations } from './eligibility.repository.js';
 
-export async function createLoan(payload) {
+function firstDueDate(disbursementDate, frequency) {
+  if (frequency === 'WEEKLY') return dayjs(disbursementDate).add(1, 'week').format('YYYY-MM-DD');
+  if (frequency === 'QUARTERLY') return dayjs(disbursementDate).add(3, 'month').format('YYYY-MM-DD');
+  return dayjs(disbursementDate).add(1, 'month').format('YYYY-MM-DD');
+}
+
+async function evaluateLoanPayload(payload) {
   const member = await findMemberById(payload.member_id);
   if (!member) {
     throw httpError(404, 'Member not found');
@@ -32,71 +44,110 @@ export async function createLoan(payload) {
   if (!product) {
     throw httpError(400, 'Loan product not found');
   }
-  const memberAccounts = await listAccountsByMember(payload.member_id);
-  const gatekeeperResult = runGatekeeper(member, payload, product, memberAccounts);
-  
-  if (!gatekeeperResult.passed) {
-    throw httpError(400, 'Loan eligibility checks failed', gatekeeperResult.checks);
+  if (!Boolean(product.is_active)) {
+    throw httpError(400, 'Loan product is inactive');
   }
-  
+  const tier = await findTierById(payload.selected_tier_id);
+  if (!tier || tier.product_code !== payload.product_code) {
+    throw httpError(400, 'Selected tier is not active or does not belong to this loan product');
+  }
+  const memberAccounts = await listEligibilityAccountsByMember(payload.member_id);
+  return { member, product, tier, result: runGatekeeper(member, payload, product, tier, memberAccounts) };
+}
+
+export async function createLoan(payload, actor) {
+  const { member, product, tier, result: gatekeeperResult } = await evaluateLoanPayload(payload);
+  if (!gatekeeperResult.passed && !payload.exception_reason?.trim()) {
+    throw httpError(400, 'An exception reason is required when eligibility checks fail', gatekeeperResult.checks);
+  }
   const loanId = uuid();
-  await createLoanApplication({
-    loan_id: loanId,
-    member_id: payload.member_id,
-    product_code: payload.product_code,
-    applied_amount: payload.applied_amount,
-    approved_amount: null,
-    term_months: payload.term_months,
-    interest_rate: payload.interest_rate || product.interest_rate,
-    interest_type: payload.interest_type || product.interest_type,
-    purpose_description: payload.purpose_description,
-    repayment_frequency: payload.repayment_frequency || 'MONTHLY',
-    workflow_status: 'UNDER_REVIEW'
+  const configRows = await query("SELECT config_key, config_value FROM system_config WHERE config_key IN ('loan_insurance_enabled')");
+  const insuranceConfig = Object.fromEntries(configRows.map((row) => [row.config_key, row.config_value]));
+  const borrowerAge = Number(payload.borrower_age ?? member.age);
+  const insurance = await quoteLoanInsurance({ age: borrowerAge, termMonths: payload.term_months, maritalStatus: member.marital_status, principal: payload.applied_amount, enabled: insuranceConfig.loan_insurance_enabled !== 'false' });
+  const serviceChargeMode = product.service_charge_mode || 'PERCENT';
+  const serviceChargeAmount = serviceChargeMode === 'FIXED'
+    ? Number(product.service_charge_fixed_amount || 0)
+    : Number(((Number(payload.applied_amount) * Number(product.service_charge_rate || 0)) / 100).toFixed(2));
+  return withTransaction(async (connection) => {
+    await createLoanApplication({
+      loan_id: loanId,
+      member_id: payload.member_id,
+      product_code: payload.product_code,
+      selected_tier_id: tier.tier_id,
+      applied_amount: payload.applied_amount,
+      approved_amount: null,
+      term_months: payload.term_months,
+      interest_rate: tier.interest_rate,
+      interest_type: 'DECLINING',
+      penalty_rate: product.penalty_rate || 2, penalty_mode: product.penalty_mode || 'PERCENT', penalty_fixed_amount: product.penalty_fixed_amount || 0, penalty_grace_days: product.penalty_grace_days || 0, penalty_escalation_enabled: product.penalty_escalation_enabled || false, penalty_escalation_value: product.penalty_escalation_value || 0,
+      service_charge_mode: serviceChargeMode, service_charge_rate: product.service_charge_rate || 0, service_charge_fixed_amount: product.service_charge_fixed_amount || 0, service_charge_amount: serviceChargeAmount,
+      borrower_age: borrowerAge, insurance_enabled: insurance.enabled, insurance_ceiling_rate: insurance.ceilingRate, insurance_rate: insurance.rate, insurance_premium: insurance.premium, insurance_renewal_date: insurance.annualRenewalRequired ? dayjs().add(1, 'year').format('YYYY-MM-DD') : null,
+      purpose_description: payload.purpose_description,
+      repayment_frequency: payload.repayment_frequency || 'MONTHLY',
+      workflow_status: 'UNDER_REVIEW'
+    }, connection);
+    const evaluationId = await createEligibilityEvaluation({ loanId, source: 'SUBMISSION', result: gatekeeperResult, actorUserId: actor.userId }, connection);
+    await updateLoan(loanId, {
+      eligibility_snapshot: JSON.stringify(gatekeeperResult),
+      tier_policy_snapshot: JSON.stringify(tier),
+      eligibility_checked_at: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      latest_eligibility_evaluation_id: evaluationId,
+      eligibility_exception_required: gatekeeperResult.passed ? 0 : 1,
+      officer_exception_reason: gatekeeperResult.passed ? null : payload.exception_reason.trim(),
+      created_by_user_id: actor.userId
+    }, connection);
+    await snapshotBoardVoters(loanId, connection);
+    await insertAuditLog({
+      userId: actor.userId,
+      action: gatekeeperResult.passed ? 'CREATE_LOAN' : 'CREATE_LOAN_EXCEPTION',
+      entity: 'loan_applications',
+      entityId: loanId,
+      metadata: { evaluation_id: evaluationId, exception_reason: payload.exception_reason || null, failed_checks: gatekeeperResult.checks.filter((check) => !check.pass).map((check) => check.name) }
+    });
+    return findLoanById(loanId, connection);
   });
-  await updateLoan(loanId, { eligibility_snapshot: JSON.stringify(gatekeeperResult) });
-  return findLoanById(loanId);
 }
 
 export async function preCheckEligibility(payload) {
-  const member = await findMemberById(payload.member_id);
-  if (!member) {
-    throw httpError(404, 'Member not found');
-  }
-  const product = await findLoanProductByCode(payload.product_code);
-  if (!product) {
-    throw httpError(400, 'Loan product not found');
-  }
-  const memberAccounts = await listAccountsByMember(payload.member_id);
-  const result = runGatekeeper(member, payload, product, memberAccounts);
-  return result;
+  return (await evaluateLoanPayload(payload)).result;
 }
 
-export async function checkLoanEligibility(loanId) {
+export async function checkLoanEligibility(loanId, actor) {
   const loan = await findLoanById(loanId);
   if (!loan) {
     throw httpError(404, 'Loan not found');
   }
-  const member = await findMemberById(loan.member_id);
-  const product = await findLoanProductByCode(loan.product_code);
-  const memberAccounts = await listAccountsByMember(loan.member_id);
-  const result = runGatekeeper(
-    member,
-    {
+  if (!['PENDING', 'UNDER_REVIEW'].includes(loan.workflow_status)) {
+    throw httpError(400, 'Eligibility can only be refreshed while a loan is pending review');
+  }
+  if (!loan.selected_tier_id) throw httpError(400, 'This historical loan does not have a selected tier');
+  const { result } = await evaluateLoanPayload({
+      member_id: loan.member_id,
+      product_code: loan.product_code,
+      selected_tier_id: loan.selected_tier_id,
       applied_amount: loan.applied_amount,
       interest_rate: loan.interest_rate,
       interest_type: loan.interest_type,
       term_months: loan.term_months
-    },
-    product,
-    memberAccounts
-  );
-  await updateLoan(loanId, { eligibility_snapshot: JSON.stringify(result) });
-  return result;
+  });
+  return withTransaction(async (connection) => {
+    const evaluationId = await createEligibilityEvaluation({ loanId, source: 'MANUAL_REFRESH', result, actorUserId: actor.userId }, connection);
+    await updateLoan(loanId, {
+      eligibility_snapshot: JSON.stringify(result),
+      eligibility_checked_at: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      latest_eligibility_evaluation_id: evaluationId,
+      eligibility_exception_required: result.passed ? 0 : 1
+    }, connection);
+    await resetApprovalVotes(loanId, connection);
+    await insertAuditLog({ userId: actor.userId, action: 'REFRESH_LOAN_ELIGIBILITY', entity: 'loan_applications', entityId: loanId, metadata: { evaluation_id: evaluationId, passed: result.passed } });
+    return { ...result, evaluation_id: evaluationId };
+  });
 }
 
 export async function approveLoan(loanId, payload, actor) {
-  if (!['ADMIN', 'MANAGER'].includes(actor.role)) {
-    throw httpError(403, 'Only MANAGER or ADMIN can approve loans');
+  if (!['ADMIN', 'MANAGER', 'BOARD_MEMBER'].includes(actor.role)) {
+    throw httpError(403, 'Only MANAGER, ADMIN, or BOARD_MEMBER can approve loans');
   }
   const loan = await findLoanById(loanId);
   if (!loan) {
@@ -105,7 +156,35 @@ export async function approveLoan(loanId, payload, actor) {
   if (loan.workflow_status === 'APPROVED') {
     throw httpError(400, 'Loan already approved');
   }
+  if (loan.workflow_status === 'REJECTED') throw httpError(400, 'Rejected loans cannot be approved');
+  if (Number(payload.approved_amount) !== Number(loan.applied_amount) ||
+      Number(payload.term_months) !== Number(loan.term_months) ||
+      Number(payload.interest_rate) !== Number(loan.interest_rate)) {
+    throw httpError(400, 'Amount, term, or rate changed. Update the application and refresh eligibility before voting.');
+  }
   return withTransaction(async (connection) => {
+    const evaluation = await findEligibilityEvaluation(loan.latest_eligibility_evaluation_id, connection);
+    if (!evaluation) throw httpError(400, 'Run eligibility validation before approving this loan');
+    if (!evaluation.passed && (!payload.override_acknowledged || !payload.override_reason?.trim())) {
+      throw httpError(400, 'Explicit exception acknowledgement and reason are required for failed eligibility');
+    }
+    await recordVote(loanId, actor, 'APPROVED', payload.audit_note || 'Approved', connection, {
+      evaluationId: evaluation.evaluation_id,
+      acknowledged: !evaluation.passed && payload.override_acknowledged,
+      reason: !evaluation.passed ? payload.override_reason.trim() : null
+    });
+    const approvals = await getApprovalStatus(loanId, connection);
+    if (approvals.rejected) throw httpError(400, 'Loan has already been rejected');
+    const approvedVotes = approvals.votes.filter((vote) => vote.decision === 'APPROVED');
+    const votesMatchEvaluation = approvedVotes.every((vote) => vote.eligibility_evaluation_id === evaluation.evaluation_id);
+    const overrideComplete = evaluation.passed || approvedVotes.every((vote) => vote.override_acknowledged && vote.override_reason);
+    if (!votesMatchEvaluation || !overrideComplete) {
+      throw httpError(400, 'All approvals must acknowledge the same current eligibility evaluation');
+    }
+    if (!approvals.manager_approved || approvals.board_approved < approvals.board_required) {
+      await insertAuditLog({ userId: actor.userId, action: 'LOAN_APPROVAL_VOTE', entity: 'loan_applications', entityId: loanId, metadata: approvals });
+      return { ...(await findLoanById(loanId, connection)), approval_status: approvals };
+    }
     if (payload.lien_amount && payload.lien_account_id) {
       const [rows] = await connection.query('SELECT * FROM accounts WHERE account_id = ?', [
         payload.lien_account_id
@@ -121,6 +200,9 @@ export async function approveLoan(loanId, payload, actor) {
         connection
       );
     }
+    const disbursementDate = payload.disbursement_date || dayjs().format('YYYY-MM-DD');
+    const repaymentFrequency = loan.repayment_frequency || 'MONTHLY';
+    const dueDate = firstDueDate(disbursementDate, repaymentFrequency);
     await updateLoan(
       loanId,
       {
@@ -128,8 +210,9 @@ export async function approveLoan(loanId, payload, actor) {
         approved_amount: payload.approved_amount || loan.applied_amount,
         interest_rate: payload.interest_rate || loan.interest_rate,
         term_months: payload.term_months || loan.term_months,
-        disbursement_date: payload.disbursement_date || dayjs().format('YYYY-MM-DD'),
-        next_payment_date: dayjs(payload.disbursement_date || dayjs()).add(1, 'month').format('YYYY-MM-DD')
+        interest_type: 'DECLINING',
+        disbursement_date: disbursementDate,
+        next_payment_date: dueDate
       },
       connection
     );
@@ -142,6 +225,14 @@ export async function approveLoan(loanId, payload, actor) {
     });
     
     const approvedLoan = await findLoanById(loanId, connection);
+    const schedule = buildDecliningSchedule({
+      principal: approvedLoan.approved_amount || approvedLoan.applied_amount,
+      annualRate: approvedLoan.interest_rate,
+      termMonths: approvedLoan.term_months,
+      frequency: repaymentFrequency,
+      firstDueDate: dueDate
+    });
+    await replaceLoanSchedule(loanId, schedule, connection);
     
     // Initialize loan balance for repayment tracking (inside same transaction)
     await initializeLoanBalance(loanId, connection);
@@ -167,13 +258,21 @@ export function buildSchedule({ loan, startDate }) {
   return buildScheduleHelper(loan, startDate);
 }
 
+export async function getPersistedSchedule(loanId) {
+  return listLoanSchedule(loanId);
+}
+
 export async function updateLoanStatus(loanId, status, actor) {
-  if (!['ADMIN', 'MANAGER'].includes(actor.role)) {
-    throw httpError(403, 'Only MANAGER or ADMIN can update loan status');
+  if (!['ADMIN', 'MANAGER', 'BOARD_MEMBER', 'CREDIT_OFFICER'].includes(actor.role)) {
+    throw httpError(403, 'You cannot update loan status');
   }
   const loan = await findLoanById(loanId);
   if (!loan) {
     throw httpError(404, 'Loan not found');
+  }
+  if (actor.role === 'CREDIT_OFFICER' &&
+      (status !== 'REJECTED' || loan.created_by_user_id !== actor.userId || !['PENDING', 'UNDER_REVIEW'].includes(loan.workflow_status))) {
+    throw httpError(403, 'Credit Officers may only reject their own pending loan applications');
   }
   
   // For APPROVED status, use the approveLoan function only if not already approved
@@ -185,6 +284,11 @@ export async function updateLoanStatus(loanId, status, actor) {
     }, actor);
   }
   
+  if (status === 'REJECTED') {
+    if (actor.role !== 'CREDIT_OFFICER') {
+      await recordVote(loanId, actor, 'REJECTED', actor.reason || 'Rejected', null);
+    }
+  }
   // For other statuses or if already approved, just update the workflow_status
   await updateLoan(loanId, { workflow_status: status });
   await insertAuditLog({
@@ -210,6 +314,16 @@ export async function updateLoanStatus(loanId, status, actor) {
   }
   
   return updatedLoan;
+}
+
+export async function getLoanApprovalStatus(loanId) {
+  const loan = await getLoanOrFail(loanId);
+  return {
+    ...(await getApprovalStatus(loanId)),
+    workflow_status: loan.workflow_status,
+    current_evaluation: await findEligibilityEvaluation(loan.latest_eligibility_evaluation_id),
+    evaluation_history: await listLoanEligibilityEvaluations(loanId)
+  };
 }
 
 export { calculateInstallment } from './gatekeeper.js';
@@ -291,4 +405,3 @@ export async function addLoanCollateral(loanId, payload, files) {
 export async function getLoans(filters = {}) {
   return listLoans(filters);
 }
-

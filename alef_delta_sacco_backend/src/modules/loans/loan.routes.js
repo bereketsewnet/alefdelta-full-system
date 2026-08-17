@@ -14,14 +14,15 @@ import {
   handleAddGuarantor,
   handleAddCollateral,
   handleUpdateLoanStatus
+  , handleGetApprovalStatus, handleInsuranceQuote
 } from './loan.controller.js';
 
 const router = Router();
 
 // List loans (must be before /:id routes)
-router.get('/', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER'), handleListLoans);
+router.get('/', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER', 'BOARD_MEMBER'), handleListLoans);
 // Get single loan
-router.get('/:id', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER'), handleGetLoan);
+router.get('/:id', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER', 'BOARD_MEMBER'), handleGetLoan);
 // Pre-check eligibility (before creating loan)
 router.post(
   '/check-eligibility',
@@ -34,23 +35,31 @@ router.post('/', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER'
 router.post(
   '/:id/check-eligibility',
   authenticate,
-  requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER'), // Teller needs this to view loan details
+  requireRoles('ADMIN', 'MANAGER', 'BOARD_MEMBER'),
+  handleCheckEligibility
+);
+router.post(
+  '/:id/eligibility/refresh',
+  authenticate,
+  requireRoles('ADMIN', 'MANAGER', 'BOARD_MEMBER'),
   handleCheckEligibility
 );
 router.post(
   '/:id/approve',
   authenticate,
-  requireRoles('ADMIN', 'MANAGER'), // Only MANAGER and ADMIN can approve loans
+  requireRoles('ADMIN', 'MANAGER', 'BOARD_MEMBER'),
   handleApproveLoan
 );
 router.put(
   '/:id/status',
   authenticate,
-  requireRoles('ADMIN', 'MANAGER'), // Only MANAGER and ADMIN can update status (reject/approve)
+  requireRoles('ADMIN', 'MANAGER', 'BOARD_MEMBER', 'CREDIT_OFFICER'),
   handleUpdateLoanStatus
 );
-router.get('/:id/schedule', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER'), handleGetSchedule);
+router.get('/:id/schedule', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'TELLER', 'BOARD_MEMBER'), handleGetSchedule);
+router.get('/:id/approval-status', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER', 'BOARD_MEMBER'), handleGetApprovalStatus);
 router.post('/calculate-installment', authenticate, handleCalculateInstallment);
+router.post('/insurance-quote', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER'), handleInsuranceQuote);
 router.post(
   '/:id/guarantors',
   authenticate,
@@ -73,4 +82,3 @@ router.post(
 );
 
 export default router;
-

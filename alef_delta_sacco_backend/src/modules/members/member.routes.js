@@ -18,7 +18,7 @@ import {
 } from './member.controller.js';
 
 const router = Router();
-const staffRoles = ['ADMIN', 'TELLER', 'MANAGER', 'CREDIT_OFFICER', 'AUDITOR'];
+const staffRoles = ['ADMIN', 'TELLER', 'MANAGER', 'CREDIT_OFFICER', 'AUDITOR', 'BOARD_MEMBER'];
 
 router.get('/', authenticate, requireRoles(...staffRoles), handleListMembers);
 
@@ -91,4 +91,3 @@ router.get(
 );
 
 export default router;
-

@@ -8,7 +8,7 @@ import {
   handleGetRepaymentHistory,
   handleGetMemberRepayments,
   handleCheckAndNotifyPenalty,
-  handleUpdateRepaymentReceipt
+  handleUpdateRepaymentReceipt, handleAdjustPenalty, handleListPenaltyAdjustments
 } from './repayment.controller.js';
 
 const router = Router();
@@ -35,6 +35,8 @@ router.get(
   requireRoles('ADMIN', 'MANAGER', 'TELLER', 'CREDIT_OFFICER'),
   handleGetPaymentSummary
 );
+router.get('/loans/:loanId/penalty-adjustments', authenticate, requireRoles('ADMIN', 'MANAGER', 'TELLER'), handleListPenaltyAdjustments);
+router.post('/loans/:loanId/penalty-adjustments', authenticate, requireRoles('ADMIN', 'MANAGER'), handleAdjustPenalty);
 
 // Get repayment history for a loan
 router.get(
@@ -74,5 +76,4 @@ router.put(
 );
 
 export default router;
-
 

@@ -5,6 +5,7 @@ export const createAccountProductSchema = Joi.object({
   name: Joi.string().required().max(150),
   description: Joi.string().allow(null, ''),
   category: Joi.string().max(50).allow(null, ''),
+  financial_category: Joi.string().valid('COMPULSORY_SAVINGS', 'VOLUNTARY_SAVINGS', 'SHARE_CAPITAL', 'OTHER').default('OTHER'),
   product_kind: Joi.string().valid('STANDARD', 'CHILDREN', 'IN_KIND', 'MICRO').default('STANDARD'),
   is_active: Joi.boolean().default(true),
   guardian_required: Joi.boolean().default(false),
@@ -23,6 +24,7 @@ export const updateAccountProductSchema = Joi.object({
   name: Joi.string().max(150),
   description: Joi.string().allow(null, ''),
   category: Joi.string().max(50).allow(null, ''),
+  financial_category: Joi.string().valid('COMPULSORY_SAVINGS', 'VOLUNTARY_SAVINGS', 'SHARE_CAPITAL', 'OTHER'),
   product_kind: Joi.string().valid('STANDARD', 'CHILDREN', 'IN_KIND', 'MICRO'),
   is_active: Joi.boolean(),
   guardian_required: Joi.boolean(),
@@ -36,4 +38,3 @@ export const updateAccountProductSchema = Joi.object({
   metadata_schema: Joi.string().allow(null, ''),
   notes: Joi.string().allow(null, '')
 }).min(1);
-

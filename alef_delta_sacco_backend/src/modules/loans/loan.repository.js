@@ -19,18 +19,22 @@ export async function createLoanApplication(record, connection) {
   const executor = getExecutor(connection);
   await executor.execute(
     `INSERT INTO loan_applications
-    (loan_id, member_id, product_code, applied_amount, approved_amount, term_months, interest_rate,
-    interest_type, purpose_description, repayment_frequency, workflow_status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    (loan_id, member_id, product_code, selected_tier_id, applied_amount, approved_amount, term_months, interest_rate,
+    interest_type, penalty_rate, penalty_mode, penalty_fixed_amount, penalty_grace_days, penalty_escalation_enabled, penalty_escalation_value, service_charge_mode, service_charge_rate, service_charge_fixed_amount, service_charge_amount, borrower_age, insurance_enabled, insurance_ceiling_rate, insurance_rate, insurance_premium, insurance_renewal_date, purpose_description, repayment_frequency, workflow_status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       record.loan_id,
       record.member_id,
       record.product_code,
+      record.selected_tier_id,
       record.applied_amount,
       record.approved_amount,
       record.term_months,
       record.interest_rate,
       record.interest_type,
+      record.penalty_rate, record.penalty_mode, record.penalty_fixed_amount, record.penalty_grace_days, record.penalty_escalation_enabled ? 1 : 0, record.penalty_escalation_value,
+      record.service_charge_mode, record.service_charge_rate, record.service_charge_fixed_amount, record.service_charge_amount,
+      record.borrower_age, record.insurance_enabled ? 1 : 0, record.insurance_ceiling_rate, record.insurance_rate, record.insurance_premium, record.insurance_renewal_date,
       record.purpose_description,
       record.repayment_frequency,
       record.workflow_status
@@ -116,4 +120,3 @@ export async function listLoans(filters = {}) {
     offset
   };
 }
-

@@ -7,6 +7,7 @@ function mapAccountProduct(row) {
     name: row.name,
     description: row.description || null,
     category: row.category || null,
+    financial_category: row.financial_category || 'OTHER',
     product_kind: row.product_kind || 'STANDARD',
     is_active: Boolean(row.is_active),
     guardian_required: Boolean(row.guardian_required),
@@ -42,13 +43,14 @@ export async function findAccountProductByCode(productCode) {
 export async function createAccountProduct(product) {
   await execute(
     `INSERT INTO account_products 
-    (product_code, name, description, category, product_kind, guardian_required, commodity_required, target_required, default_commodity_type, is_active, min_balance, min_deposit, interest_rate, withdrawal_policy, metadata_schema, notes, interest_method, profit_share_ratio)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (product_code, name, description, category, financial_category, product_kind, guardian_required, commodity_required, target_required, default_commodity_type, is_active, min_balance, min_deposit, interest_rate, withdrawal_policy, metadata_schema, notes, interest_method, profit_share_ratio)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       product.product_code,
       product.name,
       product.description || null,
       product.category || null,
+      product.financial_category || 'OTHER',
       product.product_kind || 'STANDARD',
       product.guardian_required ? 1 : 0,
       product.commodity_required ? 1 : 0,
@@ -83,6 +85,10 @@ export async function updateAccountProduct(productCode, updates) {
   if (updates.category !== undefined) {
     fields.push('category = ?');
     values.push(updates.category);
+  }
+  if (updates.financial_category !== undefined) {
+    fields.push('financial_category = ?');
+    values.push(updates.financial_category);
   }
   if (updates.product_kind !== undefined) {
     fields.push('product_kind = ?');

@@ -2,7 +2,10 @@ import { v4 as uuid } from 'uuid';
 import dayjs from 'dayjs';
 import httpError from '../../core/utils/httpError.js';
 import { withTransaction } from '../../core/db.js';
+import { query } from '../../core/db.js';
 import { findLoanById } from '../loans/loan.repository.js';
+import { listLoanSchedule, updateSchedulePayment, replaceUnpaidSchedule } from '../loans/amortization.repository.js';
+import { buildDecliningSchedule, roundMoney } from '../loans/amortization.js';
 import { 
   createRepayment, 
   listRepaymentsByLoan, 
@@ -13,12 +16,8 @@ import {
   updateLoanBalanceFields 
 } from './repayment.repository.js';
 import { 
-  calculateOutstandingBalance,
-  calculateExpectedPayment,
   calculatePenalty,
-  allocatePayment,
-  calculateNextPaymentDate,
-  calculateFlatTotal
+  calculateNextPaymentDate
 } from './payment-calculator.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
 import { toPublicUrl } from '../../core/utils/fileStorage.js';
@@ -55,13 +54,6 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
     throw httpError(403, 'Member account is TERMINATED. Cannot accept loan payments. Please contact manager for reactivation.');
   }
   
-  // Calculate current penalty
-  const penaltyInfo = calculatePenalty(loan, loan.penalty_rate || 2);
-  
-  // Use database outstanding balance as source of truth
-  const outstandingBalance = Number(loan.outstanding_balance || loan.approved_amount || loan.applied_amount);
-  const totalPenalty = Number(loan.total_penalty || 0) + Number(penaltyInfo.penaltyAmount);
-  
   // Validate payment amount
   const paymentAmount = Number(payload.amount);
   if (paymentAmount <= 0) {
@@ -79,15 +71,64 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
     throw httpError(400, 'Bank receipt photo is required');
   }
   
-  // Allocate payment
-  const allocation = allocatePayment(paymentAmount, loan, penaltyInfo.penaltyAmount);
-  
-  // Calculate new balance
-  const balanceAfter = Math.max(0, outstandingBalance - paymentAmount);
-  const isFullyPaid = balanceAfter === 0;
-  
   // Process in transaction
   return withTransaction(async (connection) => {
+    const lockedLoan = await findLoanById(loanId, connection);
+    const schedule = await listLoanSchedule(loanId, connection, true);
+    if (!schedule.length) throw httpError(409, 'This loan has no repayment schedule. Please contact an administrator before accepting payment.');
+    const outstandingBalance = roundMoney(schedule.reduce((total, row) => total + Math.max(0, Number(row.scheduled_principal) - Number(row.principal_paid)), 0));
+    // Penalties are accrued only by the daily penalty processor. Payment must never
+    // invent a new charge, otherwise a teller could charge the same penalty twice.
+    const penaltyInfo = { penaltyAmount: Number(lockedLoan.penalty_due || 0), missedMonths: 0 };
+    const totalPenalty = Number(lockedLoan.total_penalty || 0);
+    let remaining = paymentAmount;
+    const allocation = { principalPaid: 0, interestPaid: 0, penaltyPaid: Math.min(remaining, penaltyInfo.penaltyAmount) };
+    remaining = roundMoney(remaining - allocation.penaltyPaid);
+
+    // Oldest unpaid installment first. A payment made again in 10–15 days continues
+    // this exact row; it never creates or skips a second monthly obligation.
+    const unpaidRows = schedule.filter((item) => item.status !== 'PAID');
+    // Settle arrears first. When there is no due row yet, accept payment against the
+    // next contractual installment; do not charge future interest in advance.
+    const dueRows = unpaidRows.filter((row) => !dayjs(row.due_date).isAfter(dayjs(), 'day'));
+    const rowsToSettle = dueRows.length ? dueRows : unpaidRows.slice(0, 1);
+    for (const row of rowsToSettle) {
+      if (remaining <= 0) break;
+      const interestDue = roundMoney(Number(row.scheduled_interest) - Number(row.interest_paid));
+      const interest = Math.min(remaining, interestDue);
+      remaining = roundMoney(remaining - interest);
+      const principalDue = roundMoney(Number(row.scheduled_principal) - Number(row.principal_paid));
+      const principal = Math.min(remaining, principalDue);
+      remaining = roundMoney(remaining - principal);
+      const newInterest = roundMoney(Number(row.interest_paid) + interest);
+      const newPrincipal = roundMoney(Number(row.principal_paid) + principal);
+      const paid = newInterest >= Number(row.scheduled_interest) && newPrincipal >= Number(row.scheduled_principal);
+      await updateSchedulePayment(loanId, row.installment_no, { principal_paid: newPrincipal, interest_paid: newInterest, status: paid ? 'PAID' : 'PARTIAL', paid_at: paid ? dayjs().format('YYYY-MM-DD') : null }, connection);
+      allocation.interestPaid = roundMoney(allocation.interestPaid + interest);
+      allocation.principalPaid = roundMoney(allocation.principalPaid + principal);
+    }
+
+    // Any amount after the current due installment(s) is an early principal payment.
+    // It preserves the agreed regular installment and rebuilds only future unpaid rows,
+    // so the member finishes earlier rather than receiving a lower monthly payment.
+    if (remaining > 0) {
+      const principalExtra = Math.min(remaining, roundMoney(outstandingBalance - allocation.principalPaid));
+      allocation.principalPaid = roundMoney(allocation.principalPaid + principalExtra);
+      remaining = roundMoney(remaining - principalExtra);
+      if (remaining > 0) throw httpError(400, 'Payment is greater than the loan payoff amount');
+      const refreshed = await listLoanSchedule(loanId, connection, true);
+      const future = refreshed.filter((row) => row.status !== 'PAID');
+      if (future.length && principalExtra > 0) {
+        const first = future[0];
+        const remainingPrincipal = roundMoney(future.reduce((sum, row) => sum + (Number(row.scheduled_principal) - Number(row.principal_paid)), 0) - principalExtra);
+        const freshRows = remainingPrincipal > 0 ? buildDecliningSchedule({ principal: remainingPrincipal, annualRate: lockedLoan.interest_rate, termMonths: lockedLoan.term_months, frequency: lockedLoan.repayment_frequency, firstDueDate: first.due_date, installment: first.scheduled_payment }).map((row, index) => ({ ...row, installment_no: first.installment_no + index })) : [];
+        await replaceUnpaidSchedule(loanId, freshRows, connection);
+      }
+    }
+    const finalSchedule = await listLoanSchedule(loanId, connection, true);
+    const balanceAfter = roundMoney(finalSchedule.reduce((total, row) => total + Math.max(0, Number(row.scheduled_principal) - Number(row.principal_paid)), 0));
+    const isFullyPaid = balanceAfter === 0;
+    const nextRow = finalSchedule.find((row) => row.status !== 'PAID');
     // Create repayment record (ensure all numeric values are properly converted)
     const repaymentId = uuid();
     const repayment = {
@@ -119,16 +160,15 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
     await createRepayment(repayment, connection);
     
     // Update loan balance fields (ensure all numbers are properly converted)
-    const newTotalPaid = Number(loan.total_paid || 0) + Number(payload.amount);
-    const newPaymentsMade = Number(loan.payments_made || 0) + 1;
-    const newNextPaymentDate = isFullyPaid 
-      ? null 
-      : calculateNextPaymentDate(dayjs(), loan.repayment_frequency || 'MONTHLY');
+    const newTotalPaid = roundMoney(Number(lockedLoan.total_paid || 0) + paymentAmount);
+    const newPaymentsMade = Number(lockedLoan.payments_made || 0) + 1;
+    const newNextPaymentDate = isFullyPaid ? null : nextRow?.due_date || calculateNextPaymentDate(dayjs(), lockedLoan.repayment_frequency || 'MONTHLY');
     
     await updateLoanBalanceFields(loanId, {
       outstanding_balance: Number(balanceAfter),
       total_paid: Number(newTotalPaid),
       total_penalty: Number(totalPenalty),
+      penalty_due: roundMoney(Number(lockedLoan.penalty_due || 0) - allocation.penaltyPaid),
       last_payment_date: dayjs().format('YYYY-MM-DD'),
       next_payment_date: newNextPaymentDate,
       payments_made: Number(newPaymentsMade),
@@ -182,14 +222,15 @@ export async function getLoanPaymentSummary(loanId) {
   }
   
   const summary = await getRepaymentSummary(loanId);
-  const penaltyInfo = calculatePenalty(loan, loan.penalty_rate || 2);
-  const expectedPayment = calculateExpectedPayment(loan);
-  
-  // Use database outstanding_balance as source of truth
-  // It's updated on each payment, so no need to recalculate
-  const outstandingBalance = loan.outstanding_balance !== null && loan.outstanding_balance !== undefined
-    ? Number(loan.outstanding_balance)
-    : (loan.approved_amount || loan.applied_amount);
+  const schedule = await listLoanSchedule(loanId);
+  const nextRow = schedule.find((row) => row.status !== 'PAID');
+  const outstandingBalance = roundMoney(schedule.reduce((sum, row) => sum + Math.max(0, Number(row.scheduled_principal) - Number(row.principal_paid)), 0));
+  const penaltyInfo = { penaltyAmount: Number(loan.penalty_due || 0), missedMonths: loan.penalty_due > 0 ? 1 : 0 };
+  const expectedPayment = nextRow ? {
+    principal: roundMoney(Number(nextRow.scheduled_principal) - Number(nextRow.principal_paid)),
+    interest: roundMoney(Number(nextRow.scheduled_interest) - Number(nextRow.interest_paid)),
+    total: roundMoney((Number(nextRow.scheduled_principal) - Number(nextRow.principal_paid)) + (Number(nextRow.scheduled_interest) - Number(nextRow.interest_paid)))
+  } : { principal: 0, interest: 0, total: 0 };
   
   return {
     loan_id: loanId,
@@ -206,7 +247,7 @@ export async function getLoanPaymentSummary(loanId) {
     current_penalty: penaltyInfo.penaltyAmount,
     missed_months: penaltyInfo.missedMonths,
     expected_payment: expectedPayment,
-    next_payment_date: loan.next_payment_date,
+    next_payment_date: nextRow?.due_date || null,
     last_payment_date: summary.last_payment_date || null,
     is_fully_paid: loan.is_fully_paid || false,
     is_overdue: penaltyInfo.missedMonths > 0
@@ -218,6 +259,26 @@ export async function getLoanPaymentSummary(loanId) {
  */
 export async function getLoanRepaymentHistory(loanId) {
   return listRepaymentsByLoan(loanId);
+}
+
+export async function adjustLoanPenalty(loanId, payload, actor) {
+  if (!['ADMIN', 'MANAGER'].includes(actor.role)) throw httpError(403, 'Only MANAGER or ADMIN can adjust a penalty');
+  const loan = await findLoanById(loanId);
+  if (!loan) throw httpError(404, 'Loan not found');
+  const amount = roundMoney(Number(payload.amount));
+  if (amount <= 0 || amount > Number(loan.penalty_due || 0)) throw httpError(400, 'Adjustment amount must be greater than zero and cannot exceed the unpaid penalty');
+  const reason = String(payload.reason || '').trim();
+  if (!reason) throw httpError(400, 'Adjustment reason is required');
+  return withTransaction(async (connection) => {
+    await connection.execute('INSERT INTO loan_penalty_adjustments (adjustment_id, loan_id, amount, reason, adjusted_by) VALUES (?, ?, ?, ?, ?)', [uuid(), loanId, amount, reason, actor.userId]);
+    await updateLoanBalanceFields(loanId, { penalty_due: roundMoney(Number(loan.penalty_due) - amount) }, connection);
+    await insertAuditLog({ userId: actor.userId, action: 'ADJUST_LOAN_PENALTY', entity: 'loan_applications', entityId: loanId, metadata: { amount, reason } });
+    return { success: true, penalty_due: roundMoney(Number(loan.penalty_due) - amount) };
+  });
+}
+
+export async function listLoanPenaltyAdjustments(loanId) {
+  return query('SELECT a.*, u.username FROM loan_penalty_adjustments a LEFT JOIN users u ON u.user_id = a.adjusted_by WHERE a.loan_id = ? ORDER BY a.created_at DESC', [loanId]);
 }
 
 /**
@@ -357,5 +418,3 @@ export async function checkPenaltyAndNotify(loanId, actor) {
       : 'No penalties - Payment is up to date'
   };
 }
-
-

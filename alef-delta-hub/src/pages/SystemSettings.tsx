@@ -80,6 +80,8 @@ const SystemSettings = () => {
       });
     }
   });
+  const { data: insuranceRates = [] } = useQuery({ queryKey: ['insurance-rates'], queryFn: async () => (await api.get<{ data: any[] }>('/system/insurance-rates')).data.data, enabled: !!user });
+  const insuranceRateMutation = useMutation({ mutationFn: async ({ id, rate }: { id: string; rate: number }) => api.put(`/system/insurance-rates/${id}`, { configured_rate: rate }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['insurance-rates'] }); toast({ title: 'Insurance rate updated', description: 'The rate was saved within its official ceiling.' }); }, onError: (e: any) => toast({ title: 'Rate not saved', description: e.response?.data?.message || 'Rate cannot exceed its ceiling.', variant: 'destructive' }) });
 
   const handleUpdate = (key: string, value: string) => {
     updateMutation.mutate({ key, value });
@@ -265,6 +267,14 @@ const SystemSettings = () => {
               </CardContent>
             </Card>
 
+            <Card>
+              <CardHeader><CardTitle>Loan Life Insurance Matrix</CardTitle><CardDescription>Configure each age, term, and marital-status rate. The official ceiling is fixed by policy; configured rates can be equal to or below it.</CardDescription></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between max-w-md"><div><Label>Enable loan insurance</Label><p className="text-xs text-muted-foreground">Required for new loan applications when enabled.</p></div><Switch checked={configs['loan_insurance_enabled'] !== 'false'} onCheckedChange={(v) => handleSwitchChange('loan_insurance_enabled', v)} /></div>
+                <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead className="border-b text-left text-muted-foreground"><tr><th className="p-2">Age</th><th className="p-2">Term</th><th className="p-2">Status</th><th className="p-2">Official ceiling</th><th className="p-2">Configured rate (%)</th><th className="p-2">Clause</th><th className="p-2"></th></tr></thead><tbody>{insuranceRates.map((rate: any) => <tr key={rate.rate_id} className="border-b"><td className="p-2">{rate.age_min}–{rate.age_max ?? '+'}</td><td className="p-2">{rate.term_min_months}–{rate.term_max_months} months</td><td className="p-2">{rate.marital_status}</td><td className="p-2">{rate.ceiling_rate}%</td><td className="p-2"><Input className="w-24" type="number" min="0" max={rate.ceiling_rate} step="0.01" defaultValue={rate.configured_rate} onBlur={(e) => { if (Number(e.target.value) !== Number(rate.configured_rate)) insuranceRateMutation.mutate({ id: rate.rate_id, rate: Number(e.target.value) }); }} /></td><td className="p-2">{rate.clause_reference}</td><td className="p-2 text-xs text-muted-foreground">max {rate.ceiling_rate}%</td></tr>)}</tbody></table></div>
+              </CardContent>
+            </Card>
+
             {/* Share Settings */}
             <Card>
               <CardHeader>
@@ -405,4 +415,3 @@ const SystemSettings = () => {
 };
 
 export default SystemSettings;
-

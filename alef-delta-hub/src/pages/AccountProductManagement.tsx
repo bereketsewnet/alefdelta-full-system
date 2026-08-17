@@ -35,6 +35,7 @@ type AccountProductPayload = {
   name: string;
   description?: string | null;
   category?: string | null;
+  financial_category: NonNullable<AccountProduct["financial_category"]>;
   product_kind: AccountProduct["product_kind"];
   is_active: boolean;
   guardian_required: boolean;
@@ -57,6 +58,7 @@ type ProductFormState = {
   name: string;
   description: string;
   category: string;
+  financial_category: NonNullable<AccountProduct["financial_category"]>;
   product_kind: AccountProduct["product_kind"];
   is_active: boolean;
   guardian_required: boolean;
@@ -75,6 +77,7 @@ const INITIAL_FORM_STATE: ProductFormState = {
   name: "",
   description: "",
   category: "",
+  financial_category: "OTHER",
   product_kind: "STANDARD",
   is_active: true,
   guardian_required: false,
@@ -101,38 +104,40 @@ const parseNumberOrZero = (value: string) => {
 };
 
 const mapProductToForm = (product: AccountProduct): ProductFormState => ({
-  product_code: product.product_code,
-  name: product.name,
-  description: product.description || "",
-  category: product.category || "",
-  product_kind: product.product_kind || "STANDARD",
-  is_active: product.is_active,
-  guardian_required: product.guardian_required,
-  commodity_required: product.commodity_required,
-  target_required: product.target_required,
-  default_commodity_type: product.default_commodity_type || "",
-  min_balance: product.min_balance?.toString() ?? "0",
-  min_deposit: product.min_deposit?.toString() ?? "0",
-  interest_rate: product.interest_rate?.toString() ?? "0",
-  withdrawal_policy: product.withdrawal_policy || "",
-  notes: product.notes || ""
-});
+    product_code: product.product_code,
+    name: product.name,
+    description: product.description || "",
+    category: product.category || "",
+    financial_category: product.financial_category || "OTHER",
+    product_kind: product.product_kind || "STANDARD",
+    is_active: product.is_active,
+    guardian_required: product.guardian_required,
+    commodity_required: product.commodity_required,
+    target_required: product.target_required,
+    default_commodity_type: product.default_commodity_type || "",
+    min_balance: product.min_balance?.toString() ?? "0",
+    min_deposit: product.min_deposit?.toString() ?? "0",
+    interest_rate: product.interest_rate?.toString() ?? "0",
+    withdrawal_policy: product.withdrawal_policy || "",
+    notes: product.notes || ""
+  });
 
 const buildPayload = (form: ProductFormState) => ({
-  name: form.name,
-  description: form.description || null,
-  category: form.category || null,
-  product_kind: form.product_kind,
-  is_active: form.is_active,
-  guardian_required: form.guardian_required,
-  commodity_required: form.commodity_required,
-  target_required: form.target_required,
-  default_commodity_type: form.commodity_required ? form.default_commodity_type || null : null,
-  min_balance: parseNumberOrZero(form.min_balance),
-  min_deposit: parseNumberOrZero(form.min_deposit),
-  interest_rate: parseNumberOrZero(form.interest_rate),
-  withdrawal_policy: form.withdrawal_policy || null,
-  notes: form.notes || null
+    name: form.name,
+    description: form.description || null,
+    category: form.category || null,
+    financial_category: form.financial_category,
+    product_kind: form.product_kind,
+    is_active: form.is_active,
+    guardian_required: form.guardian_required,
+    commodity_required: form.commodity_required,
+    target_required: form.target_required,
+    default_commodity_type: form.commodity_required ? form.default_commodity_type || null : null,
+    min_balance: parseNumberOrZero(form.min_balance),
+    min_deposit: parseNumberOrZero(form.min_deposit),
+    interest_rate: parseNumberOrZero(form.interest_rate),
+    withdrawal_policy: form.withdrawal_policy || null,
+    notes: form.notes || null
 });
 
 const AccountProductManagement = () => {
@@ -275,6 +280,7 @@ const AccountProductManagement = () => {
   const renderBadges = (product: AccountProduct) => (
     <div className="flex flex-wrap gap-2 mt-2">
       <Badge variant="outline">{product.product_kind}</Badge>
+      <Badge variant="outline">{(product.financial_category || 'OTHER').replaceAll('_', ' ')}</Badge>
       {product.guardian_required && <Badge variant="secondary">Guardian Required</Badge>}
       {product.commodity_required && <Badge variant="secondary">In-Kind</Badge>}
       {product.target_required && <Badge variant="secondary">Target Savings</Badge>}
@@ -385,15 +391,16 @@ const AccountProductManagement = () => {
       </main>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="max-w-3xl max-h-[calc(100vh-2rem)] overflow-hidden p-0 flex flex-col">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
             <DialogTitle>{dialogMode === "create" ? "Create Account Product" : "Update Account Product"}</DialogTitle>
             <DialogDescription>
               Define savings templates, withdrawal policies, and guardian/commodity requirements mandated by the directive.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-4">
+          <div className="min-h-0 overflow-y-auto px-6 pb-4">
+          <div className="grid gap-4">
             <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="product-code">Product Code *</Label>
@@ -416,7 +423,7 @@ const AccountProductManagement = () => {
               </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-4 gap-4">
               <div>
                 <Label>Product Kind</Label>
                 <Select value={form.product_kind} onValueChange={(value) => handleProductKindChange(value as AccountProduct["product_kind"])}>
@@ -463,6 +470,18 @@ const AccountProductManagement = () => {
                   value={form.category}
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
                 />
+              </div>
+              <div>
+                <Label>Financial Category *</Label>
+                <Select value={form.financial_category} onValueChange={(value) => setForm({ ...form, financial_category: value as ProductFormState['financial_category'] })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="COMPULSORY_SAVINGS">Compulsory Savings</SelectItem>
+                    <SelectItem value="VOLUNTARY_SAVINGS">Voluntary Savings</SelectItem>
+                    <SelectItem value="SHARE_CAPITAL">Share Capital</SelectItem>
+                    <SelectItem value="OTHER">Other</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>Status</Label>
@@ -546,8 +565,9 @@ const AccountProductManagement = () => {
               />
             </div>
           </div>
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
@@ -562,4 +582,3 @@ const AccountProductManagement = () => {
 };
 
 export default AccountProductManagement;
-

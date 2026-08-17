@@ -35,6 +35,8 @@ const getImageUrl = (url: string | null | undefined): string => {
 const LoanDetail = () => {
   const [user, setUser] = useState<User | null>(null);
   const [auditNote, setAuditNote] = useState("");
+  const [overrideAcknowledged, setOverrideAcknowledged] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
@@ -80,15 +82,16 @@ const LoanDetail = () => {
 
   const loanProducts = loanProductsData || [];
 
-  // 4. Fetch Eligibility (Server-side check)
-  const { data: eligibility } = useQuery({
-    queryKey: ['loan-eligibility', id],
+  // 4. Fetch the persisted eligibility evaluation. Refresh is deliberately manual.
+  const { data: approvalStatus, refetch: refetchApprovalStatus } = useQuery({
+    queryKey: ['loan-approval-status', id],
     queryFn: async () => {
-      const res = await api.post<EligibilityCheck>(`/loans/${id}/check-eligibility`);
-      return res.data; // Expects backend to return { passed: boolean, checks: [...] }
+      const res = await api.get<any>(`/loans/${id}/approval-status`);
+      return res.data;
     },
     enabled: !!loan
   });
+  const eligibility: EligibilityCheck | undefined = approvalStatus?.current_evaluation?.result_snapshot;
 
   if (!user) return null;
   if (loadingLoan) return <div className="p-8 text-center">Loading loan details...</div>;
@@ -144,13 +147,19 @@ const LoanDetail = () => {
       });
       return;
     }
+    if (eligibility && !eligibility.passed && (!overrideAcknowledged || overrideReason.trim().length < 10)) {
+      toast({ title: 'Exception Acknowledgement Required', description: 'Confirm the failed checks and provide an override reason of at least 10 characters.', variant: 'destructive' });
+      return;
+    }
 
     try {
       await api.post(`/loans/${id}/approve`, {
         approved_amount: loan.applied_amount, // Manager can override this if UI supported editing
         term_months: loan.term_months,
         interest_rate: loan.interest_rate,
-        // audit_note: auditNote // Backend needs to support this field if not already
+        audit_note: auditNote,
+        override_acknowledged: overrideAcknowledged,
+        override_reason: overrideReason || null
       });
 
     toast({
@@ -168,6 +177,18 @@ const LoanDetail = () => {
     }
   };
 
+  const handleRefreshEligibility = async () => {
+    try {
+      await api.post(`/loans/${id}/eligibility/refresh`);
+      setOverrideAcknowledged(false);
+      setOverrideReason('');
+      await refetchApprovalStatus();
+      toast({ title: 'Validation Refreshed', description: 'Current balances were checked and all earlier approval votes were reset.' });
+    } catch (error: any) {
+      toast({ title: 'Refresh Failed', description: error.response?.data?.message || 'Could not refresh eligibility.', variant: 'destructive' });
+    }
+  };
+
   const handleReject = async () => {
     if (!auditNote.trim()) {
       toast({
@@ -180,7 +201,7 @@ const LoanDetail = () => {
 
     try {
       await api.put(`/loans/${id}/status`, {
-        workflow_status: 'REJECTED'
+        workflow_status: 'REJECTED', reason: auditNote
       });
       
       toast({
@@ -199,12 +220,12 @@ const LoanDetail = () => {
     }
   };
 
-  // Only MANAGER and ADMIN can approve loans
-  const isManagerOrAdmin = user.role === "MANAGER" || user.role === "ADMIN";
+  const isManagerOrAdmin = user.role === "MANAGER" || user.role === "ADMIN" || user.role === "BOARD_MEMBER";
   const loanNotYetApproved = loan.workflow_status !== "APPROVED";
   const loanAwaitingApproval = loan.workflow_status === "UNDER_REVIEW" || loan.workflow_status === "PENDING";
   
   const canApprove = isManagerOrAdmin && loanAwaitingApproval;
+  const canReject = canApprove || (user.role === 'CREDIT_OFFICER' && loan.created_by_user_id === user.user_id && loanAwaitingApproval);
   const isAlreadyApproved = loan.workflow_status === "APPROVED";
 
   // Mapping backend eligibility response to frontend UI structure
@@ -305,85 +326,14 @@ const LoanDetail = () => {
             {/* Eligibility Check */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Gatekeeper Checks</CardTitle>
+                <CardTitle className="text-base flex items-center justify-between">Eligibility Policy <Button size="sm" variant="outline" onClick={handleRefreshEligibility} disabled={!isManagerOrAdmin || isAlreadyApproved}>Refresh Validation</Button></CardTitle>
+                <CardDescription>Uses the saved evaluation until an authorized reviewer manually refreshes it. Refreshing resets all approval votes.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {/* Status Check */}
-                <div className="flex items-start gap-2">
-                  {eligibilityDisplay.membershipActive ? (
-                    <CheckCircle className="h-4 w-4 text-success mt-0.5" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-destructive mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Membership Active</p>
-                    <p className="text-xs text-muted-foreground">
-                      {eligibilityDisplay.membershipActive ? "Member is active" : "Member is not active"}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Income Check */}
-                <div className="flex items-start gap-2">
-                  {eligibilityDisplay.hasIncome ? (
-                    <CheckCircle className="h-4 w-4 text-success mt-0.5" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-destructive mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Has Income</p>
-                    <p className="text-xs text-muted-foreground">
-                      {eligibilityDisplay.hasIncome ? "Member has monthly income" : "Member has no monthly income"}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Affordability Check */}
-                <div className="flex items-start gap-2">
-                  {eligibilityDisplay.affordable ? (
-                    <CheckCircle className="h-4 w-4 text-success mt-0.5" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-destructive mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Affordability</p>
-                    <p className="text-xs text-muted-foreground">
-                      {eligibilityDisplay.affordable 
-                        ? "Installment is within 1/3 of monthly income" 
-                        : "Installment exceeds 1/3 of monthly income"}
-                    </p>
-                    {eligibilityDisplay.backendInstallment !== null && eligibilityDisplay.backendInstallment !== undefined ? (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Installment: {formatCurrency(eligibilityDisplay.backendInstallment)} / Max: {formatCurrency(eligibilityDisplay.backendMaxInstallment || 0)}
-                      </p>
-                    ) : affordabilityCheck?.data ? (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Installment: {formatCurrency(affordabilityCheck.data.installment)} / Max: {formatCurrency(affordabilityCheck.data.maxInstallment)}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Installment: {formatCurrency(affordability.monthlyInstallment)} / Max: {formatCurrency(affordability.maxInstallment)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Overall Eligibility */}
-                <div className="flex items-center gap-2 pt-2 border-t">
-                  {eligibilityDisplay.eligible ? (
-                    <CheckCircle className="h-4 w-4 text-success" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 text-destructive" />
-                  )}
-                  <span className="text-sm font-semibold">
-                    {eligibilityDisplay.eligible ? "Eligible" : "Not Eligible"}
-                  </span>
-                </div>
-                {!eligibilityDisplay.eligible && (
-                  <p className="text-xs text-muted-foreground pt-1">
-                    All checks must pass for eligibility
-                  </p>
-                )}
+                {eligibility?.breakdown && <div className="grid gap-2 rounded border p-3 text-sm sm:grid-cols-2"><p>Compulsory Savings: <strong>ETB {eligibility.breakdown.eligible_savings_balance.toLocaleString()}</strong> / required ETB {eligibility.breakdown.required_pre_savings_amount.toLocaleString()}</p><p>Savings deficit: <strong className={eligibility.breakdown.savings_deficit ? 'text-destructive' : 'text-success'}>ETB {eligibility.breakdown.savings_deficit.toLocaleString()}</strong></p><p>Accumulated Shares: <strong>ETB {eligibility.breakdown.accumulated_share_balance.toLocaleString()}</strong> / required ETB {eligibility.breakdown.required_share_amount.toLocaleString()}</p><p>Share deficit: <strong className={eligibility.breakdown.share_deficit ? 'text-destructive' : 'text-success'}>ETB {eligibility.breakdown.share_deficit.toLocaleString()}</strong></p><p className="sm:col-span-2 rounded bg-amber-50 p-2">Total amount needed to pass: <strong>ETB {eligibility.breakdown.total_upfront_deficit.toLocaleString()}</strong>. Informational only; no money is moved.</p></div>}
+                {eligibility?.checks?.map((check) => <div key={check.name} className="flex items-start gap-2">{check.pass ? <CheckCircle className="h-4 w-4 text-success mt-0.5" /> : <XCircle className="h-4 w-4 text-destructive mt-0.5" />}<div><p className="text-sm font-medium">{check.name.replaceAll('_', ' ')}</p><p className="text-xs text-muted-foreground">{check.message}</p></div></div>)}
+                <div className="flex items-center gap-2 border-t pt-2">{eligibility?.passed ? <CheckCircle className="h-4 w-4 text-success" /> : <AlertCircle className="h-4 w-4 text-destructive" />}<span className="font-semibold">{eligibility?.passed ? 'Eligible' : 'Exception Required'}</span></div>
+                {loan.officer_exception_reason && <div className="rounded border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-medium text-amber-900">Credit Officer exception reason</p><p className="text-sm text-amber-800">{loan.officer_exception_reason}</p></div>}
               </CardContent>
             </Card>
           </div>
@@ -620,6 +570,10 @@ const LoanDetail = () => {
                       </div>
                     )}
 
+                    {approvalStatus?.votes?.length > 0 && <div className="rounded-lg border p-3"><p className="text-sm font-medium mb-2">Approval Progress</p><div className="space-y-2">{approvalStatus.votes.map((vote: any) => <div key={vote.voter_id} className="flex items-start justify-between gap-3 text-sm"><div><p className="font-medium">{vote.username} · {vote.voter_role}</p>{vote.reason && <p className="text-xs text-muted-foreground">{vote.reason}</p>}{vote.override_reason && <p className="text-xs text-amber-700">Exception: {vote.override_reason}</p>}</div><Badge variant={vote.decision === 'APPROVED' ? 'default' : vote.decision === 'REJECTED' ? 'destructive' : 'outline'}>{vote.decision}</Badge></div>)}</div></div>}
+
+                    {eligibility && !eligibility.passed && canApprove && <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4"><label className="flex items-start gap-2 text-sm font-medium text-amber-950"><input type="checkbox" className="mt-1" checked={overrideAcknowledged} onChange={(event) => setOverrideAcknowledged(event.target.checked)} />I reviewed every failed business validation and explicitly agree to this exception.</label><div><Label>Mandatory Override Reason *</Label><Textarea rows={3} value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} placeholder="Explain why approving this failed validation is justified..." /></div></div>}
+
                     <div>
                       <label className="text-sm font-medium mb-2 block">
                         Audit Note <span className="text-destructive">*</span>
@@ -629,7 +583,7 @@ const LoanDetail = () => {
                         value={auditNote}
                         onChange={(e) => setAuditNote(e.target.value)}
                         rows={4}
-                        disabled={!canApprove || isAlreadyApproved}
+                        disabled={!canReject || isAlreadyApproved}
                       />
                     </div>
 
@@ -638,10 +592,9 @@ const LoanDetail = () => {
                         <p className="text-sm font-medium mb-2">Impact Summary</p>
                         <ul className="text-sm text-muted-foreground space-y-1">
                           <li>
-                            • Lien amount of ETB {(loan.applied_amount * 0.1).toFixed(2)} will be
-                            placed on savings
+                            • Eligibility approval does not deposit, withdraw, or transfer member funds
                           </li>
-                          <li>• Loan will be disbursed to member's voluntary account</li>
+                          <li>• Disbursement remains a separate controlled operation</li>
                           <li>
                             • First payment due:{" "}
                             {loan.next_payment_date
@@ -664,7 +617,7 @@ const LoanDetail = () => {
                       <Button
                         onClick={handleReject}
                         variant="destructive"
-                        disabled={!canApprove || isAlreadyApproved}
+                        disabled={!canReject || isAlreadyApproved}
                         className="flex-1"
                       >
                         <XCircle className="mr-2 h-4 w-4" />

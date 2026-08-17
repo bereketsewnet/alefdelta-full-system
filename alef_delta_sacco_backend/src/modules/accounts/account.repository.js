@@ -13,6 +13,18 @@ export async function listAccountsByMember(memberId) {
   return query('SELECT * FROM accounts WHERE member_id = ?', [memberId]);
 }
 
+export async function listEligibilityAccountsByMember(memberId, connection) {
+  const sql = `SELECT a.*, ap.financial_category, ap.name AS product_name
+    FROM accounts a
+    JOIN account_products ap ON ap.product_code = a.product_code
+    WHERE a.member_id = ? AND a.status = 'ACTIVE' AND ap.is_active = 1`;
+  if (connection) {
+    const [rows] = await connection.query(sql, [memberId]);
+    return rows;
+  }
+  return query(sql, [memberId]);
+}
+
 export async function listAccounts(filters = {}) {
   const where = [];
   const params = [];

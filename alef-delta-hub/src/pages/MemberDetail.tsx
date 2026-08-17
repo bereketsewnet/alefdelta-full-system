@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Edit, FileText, Phone, Mail, MapPin, User as UserIcon, Shield, Upload, X, Image as ImageIcon, Plus, Trash2, Users, Lock, Unlock, Ban } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Edit, FileText, Phone, Mail, MapPin, User as UserIcon, Shield, Upload, X, Image as ImageIcon, Plus, Trash2, Users, Lock, Unlock, Ban } from "lucide-react";
 import { formatCurrency } from "@/lib/utils/financial";
 import { useToast } from "@/hooks/use-toast";
 import { useAccountProducts } from "@/hooks/use-account-products";
@@ -648,6 +648,28 @@ type TransactionRow = Transaction & {
   receipt_photo_url?: string | null;
 };
 
+const getTargetSavingsWarning = (account: AccountWithMetadata) => {
+  const micro = account.metadata?.micro;
+  const targetAmount = Number(micro?.target_amount);
+  const targetDate = micro?.target_date;
+
+  if (!targetDate || !Number.isFinite(targetAmount) || targetAmount <= 0) {
+    return null;
+  }
+
+  const deadline = new Date(`${targetDate}T23:59:59`);
+  const balance = Number(account.balance);
+  if (Number.isNaN(deadline.getTime()) || deadline.getTime() >= Date.now() || balance >= targetAmount) {
+    return null;
+  }
+
+  return {
+    targetAmount,
+    remaining: Math.max(0, targetAmount - balance),
+    targetDate
+  };
+};
+
 const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
     const metadata = account.metadata ?? undefined;
     if (!metadata) return null;
@@ -655,6 +677,7 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
     const guardian = metadata.guardian;
     const inKind = metadata.in_kind;
     const micro = metadata.micro;
+    const targetWarning = getTargetSavingsWarning(account);
 
     if (!guardian && !inKind && !micro && !metadata.notes) {
       return null;
@@ -680,6 +703,12 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
             Target: ETB {Number(micro.target_amount).toLocaleString()}
             {micro.target_date ? ` by ${micro.target_date}` : ""}
           </p>
+        )}
+        {targetWarning && (
+          <Badge variant="destructive" className="w-fit gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            Target not met — ETB {targetWarning.remaining.toLocaleString()} remaining
+          </Badge>
         )}
         {metadata.notes && <p>Notes: {metadata.notes}</p>}
       </div>
@@ -2597,14 +2626,15 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
 
       {/* Account Dialog */}
       <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden p-0 flex flex-col">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
             <DialogTitle>{editingAccount ? 'Edit Account' : 'Create New Account'}</DialogTitle>
             <DialogDescription>
               {editingAccount ? 'Update account details' : 'Create a new account for this member'}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="min-h-0 overflow-y-auto px-6 pb-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="account_product_code">Account Product *</Label>
               <Select
@@ -2770,7 +2800,8 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
               </div>
             )}
           </div>
-          <DialogFooter>
+          </div>
+          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
             <Button variant="outline" onClick={() => setAccountDialogOpen(false)}>
               Cancel
             </Button>

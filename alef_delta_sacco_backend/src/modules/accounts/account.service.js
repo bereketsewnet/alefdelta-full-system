@@ -40,22 +40,34 @@ function buildAccountMetadata(product, input = {}) {
   const micro = {};
 
   const trimmed = (value) => (typeof value === 'string' ? value.trim() : value);
+  const guardianInput = input.guardian || {};
+  const commodityInput = input.in_kind || {};
+  const microInput = input.micro || {};
+  const guardianName = trimmed(input.guardian_name ?? guardianInput.name);
+  const guardianRelationship = trimmed(input.guardian_relationship ?? guardianInput.relationship);
+  const guardianPhone = trimmed(input.guardian_phone ?? guardianInput.phone);
+  const commodityTypeInput = trimmed(input.commodity_type ?? commodityInput.type);
+  const commodityQuantityInput = input.commodity_quantity ?? commodityInput.quantity;
+  const commodityUnitInput = trimmed(input.commodity_unit ?? commodityInput.unit);
+  const estimatedValueInput = input.estimated_value ?? commodityInput.estimated_value;
+  const targetAmountInput = input.target_amount ?? microInput.target_amount;
+  const targetDateInput = input.target_date ?? microInput.target_date;
 
-  if (product.guardian_required || trimmed(input.guardian_name) || trimmed(input.guardian_phone)) {
-    guardian.name = trimmed(input.guardian_name) || null;
-    guardian.relationship = trimmed(input.guardian_relationship) || null;
-    guardian.phone = trimmed(input.guardian_phone) || null;
+  if (product.guardian_required || guardianName || guardianPhone) {
+    guardian.name = guardianName || null;
+    guardian.relationship = guardianRelationship || null;
+    guardian.phone = guardianPhone || null;
     if (product.guardian_required && !guardian.name) {
       throw httpError(400, 'Guardian name is required for this account product');
     }
     metadata.guardian = guardian;
   }
 
-  if (product.commodity_required || trimmed(input.commodity_type)) {
-    const commodityType = trimmed(input.commodity_type) || product.default_commodity_type || null;
-    const quantity = input.commodity_quantity !== undefined ? Number(input.commodity_quantity) : null;
-    const unit = trimmed(input.commodity_unit) || null;
-    const estimatedValue = input.estimated_value !== undefined ? Number(input.estimated_value) : null;
+  if (product.commodity_required || commodityTypeInput) {
+    const commodityType = commodityTypeInput || product.default_commodity_type || null;
+    const quantity = commodityQuantityInput !== undefined ? Number(commodityQuantityInput) : null;
+    const unit = commodityUnitInput || null;
+    const estimatedValue = estimatedValueInput !== undefined ? Number(estimatedValueInput) : null;
     if (product.commodity_required && !commodityType) {
       throw httpError(400, 'Commodity type is required for in-kind savings');
     }
@@ -76,15 +88,15 @@ function buildAccountMetadata(product, input = {}) {
   }
 
   if (product.product_kind === 'MICRO' || product.target_required) {
-    const targetAmount = input.target_amount !== undefined ? Number(input.target_amount) : null;
+    const targetAmount = targetAmountInput !== undefined ? Number(targetAmountInput) : null;
     if (product.target_required && (!targetAmount || targetAmount <= 0)) {
       throw httpError(400, 'Target amount is required for micro-savings products');
     }
     if (targetAmount !== null && !Number.isNaN(targetAmount)) {
       micro.target_amount = targetAmount;
     }
-    if (input.target_date) {
-      micro.target_date = input.target_date;
+    if (targetDateInput) {
+      micro.target_date = targetDateInput;
     }
     metadata.micro = micro;
   }

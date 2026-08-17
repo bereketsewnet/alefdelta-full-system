@@ -6,9 +6,10 @@ import * as z from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { User, Member } from "@/types";
 import { api } from "@/lib/api";
-import type { LoanProduct, EligibilityCheck } from "@/types";
+import type { LoanProduct, EligibilityCheck, LoanProductTier } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -16,16 +17,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, FileText, Search, X, CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CurrencyDisplay } from "@/components/shared/CurrencyDisplay";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { calculateFlatInterest, calculateDecliningInterest } from "@/lib/utils/financial";
 import { useDebounce } from "@/hooks/use-debounce";
 
 const loanSchema = z.object({
   member_id: z.string().min(1, "Please select a member"),
   product_code: z.string().min(1, "Please select a loan product"),
+  selected_tier_id: z.string().min(1, "Please select a loan tier"),
   applied_amount: z.string().min(1, "Loan amount is required"),
   term_months: z.string().min(1, "Term is required"),
   purpose_description: z.string().min(10, "Purpose must be at least 10 characters"),
   repayment_frequency: z.enum(["MONTHLY", "QUARTERLY"]),
+  borrower_age: z.string().min(1, "Borrower age is required"),
 });
 
 type LoanFormData = z.infer<typeof loanSchema>;
@@ -37,6 +41,9 @@ const NewLoanApplication = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [eligibilityResult, setEligibilityResult] = useState<EligibilityCheck | null>(null);
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
+  const [exceptionDialogOpen, setExceptionDialogOpen] = useState(false);
+  const [exceptionReason, setExceptionReason] = useState("");
+  const [pendingSubmission, setPendingSubmission] = useState<LoanFormData | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -71,16 +78,21 @@ const NewLoanApplication = () => {
     defaultValues: {
       member_id: "",
       product_code: "",
+      selected_tier_id: "",
       applied_amount: "",
       term_months: "",
       purpose_description: "",
       repayment_frequency: "MONTHLY",
+      borrower_age: "",
     },
   });
 
   const watchedProductCode = form.watch("product_code");
+  const watchedTierId = form.watch("selected_tier_id");
   const watchedAmount = form.watch("applied_amount");
   const watchedTerm = form.watch("term_months");
+  const watchedAge = form.watch("borrower_age");
+  const selectedTier: LoanProductTier | null = selectedProduct?.tiers?.find((tier) => tier.tier_id === watchedTierId) || null;
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
@@ -98,20 +110,38 @@ const NewLoanApplication = () => {
   useEffect(() => {
     const product = loanProducts.find((p) => p.code === watchedProductCode);
     setSelectedProduct(product || null);
-  }, [watchedProductCode, loanProducts]);
-
-  if (!user) return null;
+    if (product && !product.tiers.some((tier) => tier.tier_id === form.getValues('selected_tier_id'))) {
+      form.setValue('selected_tier_id', '');
+    }
+  }, [watchedProductCode, loanProducts, form]);
 
   const amount = parseFloat(watchedAmount) || 0;
   const term = parseInt(watchedTerm) || 0;
-  const interestRate = selectedProduct?.interest_rate || 0;
+  const interestRate = selectedTier?.interest_rate ?? selectedProduct?.interest_rate ?? 0;
 
   const flatCalc = amount > 0 && term > 0 ? calculateFlatInterest(amount, interestRate, term) : null;
   const decliningCalc = amount > 0 && term > 0 ? calculateDecliningInterest(amount, interestRate, term) : null;
+  const { data: insuranceQuote } = useQuery({ queryKey: ['insurance-quote', watchedAge, term, amount, selectedMember?.marital_status], queryFn: async () => (await api.post('/loans/insurance-quote', { age: Number(watchedAge), termMonths: term, maritalStatus: selectedMember?.marital_status, principal: amount })).data, enabled: !!selectedMember && Number(watchedAge) >= 18 && term > 0 && term <= 120 && amount > 0 });
+  const debouncedEligibilityKey = useDebounce(`${form.watch('member_id')}|${watchedProductCode}|${watchedTierId}|${watchedAmount}|${watchedTerm}`, 500);
+  const eligibilityQuery = useQuery({
+    queryKey: ['new-loan-eligibility', debouncedEligibilityKey],
+    queryFn: async () => (await api.post<EligibilityCheck>('/loans/check-eligibility', {
+      member_id: form.getValues('member_id'), product_code: watchedProductCode, selected_tier_id: watchedTierId,
+      applied_amount: Number(watchedAmount), term_months: Number(watchedTerm), borrower_age: Number(watchedAge)
+    })).data,
+    enabled: Boolean(form.getValues('member_id') && watchedProductCode && watchedTierId && amount > 0 && term > 0),
+    retry: false
+  });
+
+  useEffect(() => {
+    if (eligibilityQuery.data) setEligibilityResult(eligibilityQuery.data);
+  }, [eligibilityQuery.data]);
+
+  if (!user) return null;
 
   const checkEligibility = async () => {
     const data = form.getValues();
-    if (!data.member_id || !data.product_code || !data.applied_amount || !data.term_months) {
+    if (!data.member_id || !data.product_code || !data.selected_tier_id || !data.applied_amount || !data.term_months) {
       toast({
         title: "Incomplete Form",
         description: "Please select a member, product, amount and term first.",
@@ -125,14 +155,20 @@ const NewLoanApplication = () => {
       const res = await api.post<EligibilityCheck>('/loans/check-eligibility', {
         member_id: data.member_id,
         product_code: data.product_code,
+        selected_tier_id: data.selected_tier_id,
         applied_amount: Number(data.applied_amount),
         term_months: Number(data.term_months),
+        borrower_age: Number(data.borrower_age),
       });
       setEligibilityResult(res.data);
     } catch (error: any) {
+      const details = error.response?.data?.details;
+      const message = Array.isArray(details)
+        ? details.map((detail: any) => detail.message || String(detail)).join('; ')
+        : error.response?.data?.message || "Could not run eligibility check.";
       toast({
         title: "Eligibility Check Failed",
-        description: error.response?.data?.message || "Could not run eligibility check.",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -140,12 +176,13 @@ const NewLoanApplication = () => {
     }
   };
 
-  const onSubmit = async (data: LoanFormData) => {
+  const submitApplication = async (data: LoanFormData, exceptionReasonValue?: string) => {
     try {
       await api.post('/loans', {
         ...data,
         applied_amount: Number(data.applied_amount),
         term_months: Number(data.term_months),
+        exception_reason: exceptionReasonValue || null,
       });
     
       const member = membersData?.find((m) => m.member_id === data.member_id);
@@ -166,6 +203,19 @@ const NewLoanApplication = () => {
         variant: "destructive",
       });
     }
+  };
+
+  const onSubmit = async (data: LoanFormData) => {
+    if (!eligibilityResult) {
+      toast({ title: 'Eligibility Required', description: 'Wait for or run the eligibility check before submitting.', variant: 'destructive' });
+      return;
+    }
+    if (!eligibilityResult.passed) {
+      setPendingSubmission(data);
+      setExceptionDialogOpen(true);
+      return;
+    }
+    await submitApplication(data);
   };
 
 
@@ -235,6 +285,7 @@ const NewLoanApplication = () => {
                                         setSelectedMember(member);
                                         setSearchQuery("");
                                         field.onChange(member.member_id);
+                                        form.setValue('borrower_age', String(member.age || ''));
                                       }}
                                     >
                                       <p className="font-medium">{member.first_name} {member.middle_name} {member.last_name}</p>
@@ -273,6 +324,8 @@ const NewLoanApplication = () => {
                       )}
                     />
 
+                    <FormField control={form.control} name="borrower_age" render={({ field }) => <FormItem><FormLabel>Borrower Age *</FormLabel><FormControl><Input type="number" min="18" max="120" {...field} /></FormControl><FormDescription>Defaulted from member record; adjust only when verified.</FormDescription><FormMessage /></FormItem>} />
+
                     <FormField
                       control={form.control}
                       name="product_code"
@@ -298,7 +351,19 @@ const NewLoanApplication = () => {
                       )}
                     />
 
-                    {selectedProduct && (
+                    <FormField control={form.control} name="selected_tier_id" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Loan Tier *</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange} disabled={!selectedProduct}>
+                          <FormControl><SelectTrigger><SelectValue placeholder="Select the policy tier" /></SelectTrigger></FormControl>
+                          <SelectContent>{selectedProduct?.tiers?.map((tier) => <SelectItem key={tier.tier_id} value={tier.tier_id}>{tier.name} · ETB {tier.loan_amount_min_etb.toLocaleString()}–{tier.loan_amount_max_etb?.toLocaleString() || 'No ceiling'} · {tier.min_savings_duration_months} months</SelectItem>)}</SelectContent>
+                        </Select>
+                        <FormDescription>The officer selects the tier; the server validates every rule.</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+
+                    {selectedProduct && selectedTier && (
                       <div className="p-4 bg-muted rounded-lg text-sm space-y-1">
                         {selectedProduct.category && (
                           <p><span className="font-medium">Category:</span> {selectedProduct.category}</p>
@@ -309,7 +374,7 @@ const NewLoanApplication = () => {
                         </p>
                         <p>
                           <span className="font-medium">Term Range:</span>{" "}
-                          {selectedProduct.min_term_months} – {selectedProduct.max_term_months} months
+                          {selectedProduct.min_term_months} – {selectedTier.max_term_months} months
                         </p>
                         <p>
                           <span className="font-medium">Penalty Rate:</span>{" "}
@@ -317,39 +382,25 @@ const NewLoanApplication = () => {
                         </p>
 
                         {/* Tier / policy requirements */}
-                        {(selectedProduct.min_savings_duration_months != null ||
-                          selectedProduct.loan_amount_max_etb != null ||
-                          selectedProduct.required_pre_savings_pct != null ||
-                          selectedProduct.eligible_savings_types) && (
+                        {selectedTier && (
                           <div className="mt-3 pt-3 border-t border-border space-y-1">
                             <p className="font-semibold text-xs uppercase tracking-wide text-muted-foreground">Member Requirements</p>
-                            {selectedProduct.min_savings_duration_months != null && (
-                              <p><span className="font-medium">Min Savings Duration:</span> {selectedProduct.min_savings_duration_months} months</p>
-                            )}
-                            {(selectedProduct.loan_amount_min_etb != null || selectedProduct.loan_amount_max_etb != null) && (
+                            <p><span className="font-medium">Min Savings Duration:</span> {selectedTier.min_savings_duration_months} months</p>
+                            {(selectedTier.loan_amount_min_etb != null || selectedTier.loan_amount_max_etb != null) && (
                               <p>
                                 <span className="font-medium">Loan Range:</span>{" "}
-                                {selectedProduct.loan_amount_min_etb != null
-                                  ? `ETB ${Number(selectedProduct.loan_amount_min_etb).toLocaleString()}`
+                                {selectedTier.loan_amount_min_etb != null
+                                  ? `ETB ${Number(selectedTier.loan_amount_min_etb).toLocaleString()}`
                                   : 'ETB 0'}{" "}
                                 –{" "}
-                                {selectedProduct.loan_amount_max_etb != null
-                                  ? `ETB ${Number(selectedProduct.loan_amount_max_etb).toLocaleString()}`
+                                {selectedTier.loan_amount_max_etb != null
+                                  ? `ETB ${Number(selectedTier.loan_amount_max_etb).toLocaleString()}`
                                   : 'No limit'}
                               </p>
                             )}
-                            {selectedProduct.required_pre_savings_pct != null && (
-                              <p><span className="font-medium">Pre-Savings Required:</span> {selectedProduct.required_pre_savings_pct}% of loan amount</p>
-                            )}
-                            {selectedProduct.eligible_savings_types && (
-                              <p>
-                                <span className="font-medium">Eligible Savings Accounts:</span>{" "}
-                                {selectedProduct.eligible_savings_types.replace(/_/g, ' ').replace(/,/g, ', ')}
-                              </p>
-                            )}
-                            {selectedProduct.requires_lump_sum_pre_savings && (
-                              <p className="text-amber-600 font-medium">Lump-sum pre-savings deposit required</p>
-                            )}
+                            <p><span className="font-medium">Pre-Savings Required:</span> {selectedTier.required_pre_savings_pct}%</p>
+                            <p><span className="font-medium">Share Purchase Required:</span> {selectedTier.required_share_purchase_pct}%</p>
+                            <p><span className="font-medium">Eligible Savings Accounts:</span> {selectedTier.eligible_savings_products.join(', ')}</p>
                           </div>
                         )}
                       </div>
@@ -381,13 +432,13 @@ const NewLoanApplication = () => {
                                 placeholder="24"
                                 {...field}
                                 min={selectedProduct?.min_term_months}
-                                max={selectedProduct?.max_term_months}
+                                max={selectedTier?.max_term_months ?? selectedProduct?.max_term_months}
                               />
                             </FormControl>
                             {selectedProduct && (
                               <FormDescription>
                                 Between {selectedProduct.min_term_months} and{" "}
-                                {selectedProduct.max_term_months} months
+                                {selectedTier?.max_term_months ?? selectedProduct.max_term_months} months
                               </FormDescription>
                             )}
                             <FormMessage />
@@ -467,6 +518,13 @@ const NewLoanApplication = () => {
                           </span>
                         </div>
                         <div className="space-y-2">
+                          {eligibilityResult.breakdown && <div className="mb-4 grid gap-3 rounded-lg border bg-background p-4 sm:grid-cols-2">
+                            <div><p className="text-xs text-muted-foreground">Requested Amount</p><CurrencyDisplay amount={eligibilityResult.breakdown.requested_amount} className="font-semibold" /></div>
+                            <div><p className="text-xs text-muted-foreground">Savings Duration</p><p className="font-semibold">{eligibilityResult.breakdown.savings_duration_months} months</p></div>
+                            <div><p className="text-xs text-muted-foreground">Required / Actual Compulsory Savings</p><p className="font-semibold">ETB {eligibilityResult.breakdown.required_pre_savings_amount.toLocaleString()} / ETB {eligibilityResult.breakdown.eligible_savings_balance.toLocaleString()}</p><p className={eligibilityResult.breakdown.savings_deficit > 0 ? 'text-red-700' : 'text-green-700'}>Deficit: ETB {eligibilityResult.breakdown.savings_deficit.toLocaleString()}</p></div>
+                            <div><p className="text-xs text-muted-foreground">Required / Accumulated Shares</p><p className="font-semibold">ETB {eligibilityResult.breakdown.required_share_amount.toLocaleString()} / ETB {eligibilityResult.breakdown.accumulated_share_balance.toLocaleString()}</p><p className={eligibilityResult.breakdown.share_deficit > 0 ? 'text-red-700' : 'text-green-700'}>Deficit: ETB {eligibilityResult.breakdown.share_deficit.toLocaleString()}</p></div>
+                            <div className="sm:col-span-2 rounded bg-amber-50 p-3"><p className="text-xs text-amber-800">Final amount needed to satisfy savings and share policy</p><p className="text-xl font-bold text-amber-900">ETB {eligibilityResult.breakdown.total_upfront_deficit.toLocaleString()}</p><p className="text-xs text-amber-800">Informational only. This screen never deposits, withdraws, or transfers money.</p></div>
+                          </div>}
                           {eligibilityResult.checks.map((check) => (
                             <div key={check.name} className="flex items-start gap-2 text-sm">
                               {check.pass ? (
@@ -476,6 +534,7 @@ const NewLoanApplication = () => {
                               )}
                               <div>
                                 <span className={check.pass ? 'text-green-700' : 'text-red-700'}>
+                                  {check.message || <>
                                   {check.name === 'status' && 'Member status is ACTIVE'}
                                   {check.name === 'income' && 'Member has monthly income'}
                                   {check.name === 'affordability' && `Monthly installment (ETB ${(check.data as any)?.installment?.toLocaleString() || 'N/A'}) does not exceed 1/3 of monthly income (ETB ${(check.data as any)?.maxInstallment?.toLocaleString() || 'N/A'})`}
@@ -483,6 +542,7 @@ const NewLoanApplication = () => {
                                   {check.name === 'pre_savings' && `Pre-savings balance: ETB ${(check.data as any)?.savings_balance?.toLocaleString() || '0'} (required: ETB ${(check.data as any)?.required_balance?.toLocaleString() || '0'})`}
                                   {check.name === 'loan_ceiling' && `Loan amount exceeds ceiling of ETB ${(check.data as any)?.ceiling?.toLocaleString() || 'N/A'}`}
                                   {check.name === 'loan_floor' && `Loan amount is below minimum of ETB ${(check.data as any)?.floor?.toLocaleString() || 'N/A'}`}
+                                  </>}
                                 </span>
                               </div>
                             </div>
@@ -494,7 +554,7 @@ const NewLoanApplication = () => {
                     <div className="flex gap-4 pt-4">
                       <Button type="submit" className="flex-1">
                         <FileText className="mr-2 h-4 w-4" />
-                        Submit Application
+                        {eligibilityResult && !eligibilityResult.passed ? 'Submit as Exception' : 'Submit Application'}
                       </Button>
                       <Button
                         type="button"
@@ -572,6 +632,13 @@ const NewLoanApplication = () => {
               </Card>
             )}
 
+            {insuranceQuote && amount > 0 && selectedMember && (
+              <Card className="border-blue-200 bg-blue-50/50">
+                <CardHeader><CardTitle className="text-base">Loan Life Insurance</CardTitle><CardDescription>Calculated from the SACCO insurance matrix. The rate cannot exceed its age, term, and marital-status ceiling.</CardDescription></CardHeader>
+                <CardContent className="space-y-2 text-sm"><p>Borrower age: <strong>{watchedAge}</strong> • {selectedMember.marital_status === 'MARRIED' ? 'Married' : 'Single'} • Term: <strong>{term} months</strong></p><p>Configured rate: <strong>{insuranceQuote.rate}%</strong> <span className="text-muted-foreground">(official ceiling {insuranceQuote.ceilingRate}%)</span></p><p>One-year premium: <strong>ETB {Number(insuranceQuote.premium).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></p>{insuranceQuote.annualRenewalRequired && <p className="text-amber-700">Annual renewal is required while the loan remains active.</p>}</CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Process Steps</CardTitle>
@@ -591,6 +658,13 @@ const NewLoanApplication = () => {
           </div>
         </div>
       </main>
+      <Dialog open={exceptionDialogOpen} onOpenChange={setExceptionDialogOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Submit Failed Eligibility as an Exception?</DialogTitle><DialogDescription>The application will remain under review. One Manager/Admin and every assigned Board Member must explicitly accept the failed checks. No money will be moved.</DialogDescription></DialogHeader>
+          <div className="space-y-2"><Label htmlFor="exception-reason">Credit Officer Exception Reason *</Label><Textarea id="exception-reason" rows={5} value={exceptionReason} onChange={(event) => setExceptionReason(event.target.value)} placeholder="Explain why this application should be reviewed despite the failed policy checks..." /></div>
+          <DialogFooter><Button variant="outline" onClick={() => setExceptionDialogOpen(false)}>Cancel</Button><Button variant="destructive" disabled={exceptionReason.trim().length < 10 || !pendingSubmission} onClick={async () => { if (!pendingSubmission) return; await submitApplication(pendingSubmission, exceptionReason.trim()); setExceptionDialogOpen(false); }}>Submit Exception</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

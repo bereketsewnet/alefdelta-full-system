@@ -1,4 +1,5 @@
 import * as systemService from './system.service.js';
+import httpError from '../../core/utils/httpError.js';
 import * as reportService from '../reports/report.service.js';
 import { processOverdueLoanPenalties, getOverdueLoansReport } from '../loan-repayments/penalty-processor.js';
 import { processMonthlyInterest } from '../accounts/interest-processor.js';
@@ -122,3 +123,6 @@ export async function updateSystemConfig(req, res, next) {
     next(error);
   }
 }
+
+export async function getInsuranceRates(req, res, next) { try { res.json({ data: await systemService.getInsuranceMatrix() }); } catch (error) { next(error); } }
+export async function updateInsuranceRate(req, res, next) { try { res.json(await systemService.updateInsuranceRate(req.params.id, req.body.configured_rate)); } catch (error) { next(httpError(400, error.message)); } }

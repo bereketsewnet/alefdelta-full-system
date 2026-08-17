@@ -5,6 +5,7 @@ import {
   getMemberRepayments,
   checkPenaltyAndNotify,
   updateLoanRepaymentReceiptInfo
+  , adjustLoanPenalty, listLoanPenaltyAdjustments
 } from './repayment.service.js';
 import { repaymentSchema } from './repayment.validators.js';
 import httpError from '../../core/utils/httpError.js';
@@ -87,3 +88,9 @@ export async function handleUpdateRepaymentReceipt(req, res, next) {
   }
 }
 
+export async function handleAdjustPenalty(req, res, next) {
+  try { res.json(await adjustLoanPenalty(req.params.loanId, req.body, req.user)); } catch (error) { next(error); }
+}
+export async function handleListPenaltyAdjustments(req, res, next) {
+  try { res.json({ data: await listLoanPenaltyAdjustments(req.params.loanId) }); } catch (error) { next(error); }
+}

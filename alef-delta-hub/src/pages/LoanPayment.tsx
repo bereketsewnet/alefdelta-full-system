@@ -41,6 +41,18 @@ interface LoanPaymentSummary {
   is_overdue: boolean;
 }
 
+interface ScheduleRow {
+  installment_no: number;
+  due_date: string;
+  opening_balance: number;
+  scheduled_payment: number;
+  scheduled_principal: number;
+  scheduled_interest: number;
+  principal_paid: number;
+  interest_paid: number;
+  status: 'PENDING' | 'PARTIAL' | 'PAID';
+}
+
 const LoanPayment = () => {
   const [user, setUser] = useState<User | null>(null);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
@@ -51,6 +63,8 @@ const LoanPayment = () => {
   const [bankReceiptNo, setBankReceiptNo] = useState("");
   const [companyReceiptNo, setCompanyReceiptNo] = useState("");
   const [notes, setNotes] = useState("");
+  const [penaltyAdjustment, setPenaltyAdjustment] = useState("");
+  const [penaltyAdjustmentReason, setPenaltyAdjustmentReason] = useState("");
   const [bankReceiptFile, setBankReceiptFile] = useState<File | null>(null);
   const [bankReceiptPreview, setBankReceiptPreview] = useState<string | null>(null);
   const bankReceiptFileRef = useRef<HTMLInputElement>(null);
@@ -109,6 +123,20 @@ const LoanPayment = () => {
       return res.data;
     },
     enabled: !!selectedLoan
+  });
+
+  const { data: scheduleData } = useQuery({
+    queryKey: ['loan-schedule', selectedLoan?.loan_id],
+    queryFn: async () => (await api.get<{ schedule: ScheduleRow[] }>(`/loans/${selectedLoan?.loan_id}/schedule`)).data.schedule,
+    enabled: !!selectedLoan
+  });
+  const penaltyAdjustmentMutation = useMutation({
+    mutationFn: async () => api.post(`/loans/${selectedLoan?.loan_id}/penalty-adjustments`, { amount: Number(penaltyAdjustment), reason: penaltyAdjustmentReason.trim() }),
+    onSuccess: () => {
+      toast({ title: "Penalty adjusted", description: "The adjustment was recorded in the audit trail." });
+      setPenaltyAdjustment(""); setPenaltyAdjustmentReason(""); refetchSummary();
+    },
+    onError: (error: any) => toast({ title: "Adjustment failed", description: error.response?.data?.message || "Unable to adjust penalty", variant: "destructive" })
   });
 
   const paymentMutation = useMutation({
@@ -415,6 +443,14 @@ const LoanPayment = () => {
                         </div>
                       </div>
                     )}
+                    {paymentSummary.current_penalty > 0 && ["ADMIN", "MANAGER"].includes(user.role) && (
+                      <div className="mt-4 p-4 border border-amber-300 rounded-lg bg-amber-50 space-y-3">
+                        <p className="font-medium text-amber-900">Penalty adjustment — Manager/Admin only</p>
+                        <p className="text-xs text-amber-800">A reason is required and the change is permanently audited. This reduces only the unpaid penalty; it never changes loan principal or interest.</p>
+                        <div className="grid gap-3 md:grid-cols-2"><Input type="number" min="0.01" max={paymentSummary.current_penalty} step="0.01" placeholder="Adjustment amount (ETB)" value={penaltyAdjustment} onChange={(e) => setPenaltyAdjustment(e.target.value)} /><Input placeholder="Mandatory reason" value={penaltyAdjustmentReason} onChange={(e) => setPenaltyAdjustmentReason(e.target.value)} /></div>
+                        <Button variant="outline" disabled={penaltyAdjustmentMutation.isPending || !Number(penaltyAdjustment) || !penaltyAdjustmentReason.trim()} onClick={() => penaltyAdjustmentMutation.mutate()}>Record penalty adjustment</Button>
+                      </div>
+                    )}
 
                     {/* Next Payment Date */}
                     {paymentSummary.next_payment_date && (
@@ -423,6 +459,19 @@ const LoanPayment = () => {
                         <span className="font-medium">{new Date(paymentSummary.next_payment_date).toLocaleDateString()}</span>
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Declining-Balance Repayment Schedule</CardTitle>
+                    <CardDescription>Regular payment stays fixed; interest falls and principal rises as the balance declines.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-sm">
+                      <thead className="border-b text-left text-muted-foreground"><tr><th className="p-2">#</th><th className="p-2">Due date</th><th className="p-2">Opening balance</th><th className="p-2">Payment</th><th className="p-2">Principal</th><th className="p-2">Interest</th><th className="p-2">Status</th></tr></thead>
+                      <tbody>{scheduleData?.map((row) => <tr key={row.installment_no} className="border-b"><td className="p-2">{row.installment_no}</td><td className="p-2">{new Date(row.due_date).toLocaleDateString()}</td><td className="p-2"><CurrencyDisplay amount={row.opening_balance} /></td><td className="p-2"><CurrencyDisplay amount={row.scheduled_payment} /></td><td className="p-2"><CurrencyDisplay amount={row.scheduled_principal} /></td><td className="p-2"><CurrencyDisplay amount={row.scheduled_interest} /></td><td className="p-2"><Badge variant={row.status === 'PAID' ? 'secondary' : row.status === 'PARTIAL' ? 'default' : 'outline'}>{row.status}</Badge></td></tr>)}</tbody>
+                    </table>
                   </CardContent>
                 </Card>
 
@@ -592,5 +641,3 @@ const LoanPayment = () => {
 };
 
 export default LoanPayment;
-
-

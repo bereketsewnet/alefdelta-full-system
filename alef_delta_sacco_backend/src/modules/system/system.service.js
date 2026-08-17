@@ -1,5 +1,8 @@
 import { query } from '../../core/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getInsuranceMatrix, updateInsuranceRate } from '../loans/insurance.js';
+
+export { getInsuranceMatrix, updateInsuranceRate };
 
 export async function getLastJobStatus(jobType) {
   const [row] = await query(

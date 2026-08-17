@@ -220,6 +220,10 @@ const Login = () => {
                   <span className="font-medium">Manager:</span>
                   <span className="font-mono break-all">manager / manager@gmail.com</span>
                 </div>
+                <div className="grid grid-cols-[90px_1fr] items-start gap-2 pb-1">
+                  <span className="font-medium">Board Member:</span>
+                  <span className="font-mono break-all">e2e_board1 / e2e_board1@example.test</span>
+                </div>
                 <div className="mt-2 pt-2 border-t border-border/50 text-center">
                   <span className="font-medium">Password: </span>
                   <span className="font-mono font-bold bg-background px-1.5 py-0.5 rounded border">Demo1234</span>

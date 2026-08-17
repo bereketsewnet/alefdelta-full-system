@@ -12,7 +12,7 @@ export const resetPasswordSchema = Joi.object({
 export const createUserSchema = Joi.object({
   username: Joi.string().min(3).max(50).required(),
   password: Joi.string().min(8).required(),
-  role: Joi.string().valid('ADMIN', 'TELLER', 'CREDIT_OFFICER', 'MANAGER', 'AUDITOR').required(),
+  role: Joi.string().valid('ADMIN', 'TELLER', 'CREDIT_OFFICER', 'MANAGER', 'AUDITOR', 'BOARD_MEMBER').required(),
   email: Joi.string().email().required(),
   phone: Joi.string().required(),
   status: Joi.string().valid('ACTIVE', 'DISABLED').default('ACTIVE')
@@ -22,6 +22,6 @@ export const updateUserSchema = Joi.object({
   username: Joi.string().min(3).max(50),
   email: Joi.string().email(),
   phone: Joi.string(),
-  role: Joi.string().valid('ADMIN', 'TELLER', 'CREDIT_OFFICER', 'MANAGER', 'AUDITOR'),
+  role: Joi.string().valid('ADMIN', 'TELLER', 'CREDIT_OFFICER', 'MANAGER', 'AUDITOR', 'BOARD_MEMBER'),
   status: Joi.string().valid('ACTIVE', 'DISABLED')
 });

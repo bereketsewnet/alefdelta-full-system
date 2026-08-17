@@ -1,6 +1,6 @@
 // Core Types based on ALEF-DELTA SACCO Spec
 
-export type UserRole = "TELLER" | "CREDIT_OFFICER" | "MANAGER" | "ADMIN";
+export type UserRole = "TELLER" | "CREDIT_OFFICER" | "MANAGER" | "ADMIN" | "BOARD_MEMBER" | "AUDITOR";
 
 export type MemberType = "GOV_EMP" | "TRADER" | "NGO" | "FARMER" | "SELF";
 
@@ -177,6 +177,23 @@ export interface Transaction {
 }
 
 // Loan Product
+export interface LoanProductTier {
+  tier_id: string;
+  product_code: string;
+  tier_code: string;
+  name: string;
+  display_order: number;
+  min_savings_duration_months: number;
+  loan_amount_min_etb: number;
+  loan_amount_max_etb: number | null;
+  max_term_months: number;
+  interest_rate: number;
+  required_pre_savings_pct: number;
+  required_share_purchase_pct: number;
+  eligible_savings_products: string[];
+  is_active: boolean;
+}
+
 export interface LoanProduct {
   code: string;
   name: string;
@@ -185,6 +202,14 @@ export interface LoanProduct {
   min_term_months: number;
   max_term_months: number;
   penalty_rate: number;
+  penalty_mode?: 'PERCENT' | 'FIXED';
+  penalty_fixed_amount?: number;
+  penalty_grace_days?: number;
+  penalty_escalation_enabled?: boolean;
+  penalty_escalation_value?: number;
+  service_charge_mode?: 'PERCENT' | 'FIXED';
+  service_charge_rate?: number;
+  service_charge_fixed_amount?: number;
   category?: string | null;
   loan_category?: 'STANDARD' | 'VEHICLE' | 'HOUSING' | null;
   min_savings_duration_months?: number | null;
@@ -193,6 +218,9 @@ export interface LoanProduct {
   required_pre_savings_pct?: number | null;
   eligible_savings_types?: string | null;
   requires_lump_sum_pre_savings?: boolean;
+  required_share_purchase_pct?: number | null;
+  is_active?: boolean;
+  tiers: LoanProductTier[];
 }
 
 // Account Product
@@ -201,6 +229,7 @@ export interface AccountProduct {
   name: string;
   description?: string | null;
   category?: string | null;
+  financial_category?: 'COMPULSORY_SAVINGS' | 'VOLUNTARY_SAVINGS' | 'SHARE_CAPITAL' | 'OTHER';
   product_kind: "STANDARD" | "CHILDREN" | "IN_KIND" | "MICRO";
   is_active: boolean;
   guardian_required: boolean;
@@ -222,6 +251,7 @@ export interface LoanApplication {
   loan_id: string;
   member_id: string;
   product_code: string;
+  selected_tier_id?: string | null;
   applied_amount: number;
   approved_amount: number;
   term_months: number;
@@ -233,6 +263,13 @@ export interface LoanApplication {
   next_payment_date?: string;
   created_at: string;
   updated_at: string;
+  eligibility_snapshot?: EligibilityCheck | string | null;
+  tier_policy_snapshot?: LoanProductTier | string | null;
+  eligibility_checked_at?: string | null;
+  latest_eligibility_evaluation_id?: string | null;
+  eligibility_exception_required?: boolean;
+  officer_exception_reason?: string | null;
+  created_by_user_id?: string | null;
 }
 
 // Guarantor
@@ -297,11 +334,27 @@ export interface ChartDataPoint {
 export interface EligibilityCheckItem {
   name: string;
   pass: boolean;
+  overrideable?: boolean;
+  message?: string;
   data?: Record<string, unknown>;
 }
 
 export interface EligibilityCheck {
   passed: boolean;
+  override_required?: boolean;
+  selected_tier?: LoanProductTier;
+  breakdown?: {
+    requested_amount: number;
+    required_pre_savings_amount: number;
+    eligible_savings_balance: number;
+    savings_deficit: number;
+    required_share_amount: number;
+    accumulated_share_balance: number;
+    share_deficit: number;
+    total_upfront_deficit: number;
+    savings_duration_months: number;
+    eligible_savings_products: string[];
+  };
   checks: EligibilityCheckItem[];
   installment: number;
   maxInstallment: number;

@@ -11,6 +11,10 @@ import { setupSwagger } from './core/swagger.js';
 
 const app = express();
 
+// Production traffic reaches the API through the VPS-wide Caddy container.
+// Trust exactly that single proxy hop so rate limiting uses the real client IP.
+app.set('trust proxy', 1);
+
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
@@ -51,4 +55,3 @@ app.use('/api', routes);
 app.use(errorHandler);
 
 export default app;
-

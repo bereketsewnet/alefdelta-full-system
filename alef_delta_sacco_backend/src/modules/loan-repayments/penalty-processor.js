@@ -53,13 +53,6 @@ export async function processOverdueLoanPenalties() {
           break;
       }
       
-      // Calculate how many payment periods were missed
-      const periodsMissed = Math.floor(daysOverdue / intervalDays);
-      
-      if (periodsMissed === 0) {
-        console.log(`⏭️  Loan ${loan.loan_id}: Overdue but less than one period, skipping`);
-        continue;
-      }
       
       // Check if penalty was already applied for this period
       const lastPenaltyCheck = dayjs(loan.last_penalty_date || loan.disbursement_date);
@@ -82,18 +75,18 @@ export async function processOverdueLoanPenalties() {
       await withTransaction(async (connection) => {
         // Update loan with new penalty
         const newTotalPenalty = Number(loan.total_penalty || 0) + Number(penaltyInfo.penaltyAmount);
-        const newOutstanding = Number(loan.outstanding_balance) + Number(penaltyInfo.penaltyAmount);
+        const newPenaltyDue = Number(loan.penalty_due || 0) + Number(penaltyInfo.penaltyAmount);
         
         await connection.execute(`
           UPDATE loan_applications 
           SET 
             total_penalty = ?,
-            outstanding_balance = ?,
+            penalty_due = ?,
             last_penalty_date = ?
           WHERE loan_id = ?
         `, [
           newTotalPenalty,
-          newOutstanding,
+          newPenaltyDue,
           today.format('YYYY-MM-DD'),
           loan.loan_id
         ]);
@@ -109,13 +102,13 @@ export async function processOverdueLoanPenalties() {
             missed_periods: penaltyInfo.missedMonths,
             days_overdue: daysOverdue,
             new_total_penalty: newTotalPenalty,
-            new_outstanding: newOutstanding,
+            penalty_due: newPenaltyDue,
             penalty_rate: loan.penalty_rate || 2
           }
         });
       });
       
-      console.log(`✅ Loan ${loan.loan_id}: Applied penalty ETB ${penaltyInfo.penaltyAmount.toFixed(2)} (${periodsMissed} period(s) missed)`);
+      console.log(`✅ Loan ${loan.loan_id}: Applied penalty ETB ${penaltyInfo.penaltyAmount.toFixed(2)} (${penaltyInfo.missedMonths} period(s) overdue)`);
       processedCount++;
       penaltyTotal += penaltyInfo.penaltyAmount;
       
@@ -162,5 +155,3 @@ export async function getOverdueLoansReport() {
   
   return overdueLoans;
 }
-
-
