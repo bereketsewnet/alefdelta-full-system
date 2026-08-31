@@ -30,6 +30,8 @@ const loanSchema = z.object({
   purpose_description: z.string().min(10, "Purpose must be at least 10 characters"),
   repayment_frequency: z.enum(["MONTHLY", "QUARTERLY"]),
   borrower_age: z.string().min(1, "Borrower age is required"),
+  fee_payment_method: z.enum(["DEDUCT_FROM_LOAN", "OUT_OF_POCKET"]),
+  fee_receipt_number: z.string().max(120).optional(),
 });
 
 type LoanFormData = z.infer<typeof loanSchema>;
@@ -44,6 +46,7 @@ const NewLoanApplication = () => {
   const [exceptionDialogOpen, setExceptionDialogOpen] = useState(false);
   const [exceptionReason, setExceptionReason] = useState("");
   const [pendingSubmission, setPendingSubmission] = useState<LoanFormData | null>(null);
+  const [feeReceipt, setFeeReceipt] = useState<File | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -84,6 +87,8 @@ const NewLoanApplication = () => {
       purpose_description: "",
       repayment_frequency: "MONTHLY",
       borrower_age: "",
+      fee_payment_method: "DEDUCT_FROM_LOAN",
+      fee_receipt_number: "",
     },
   });
 
@@ -92,6 +97,7 @@ const NewLoanApplication = () => {
   const watchedAmount = form.watch("applied_amount");
   const watchedTerm = form.watch("term_months");
   const watchedAge = form.watch("borrower_age");
+  const watchedFeePaymentMethod = form.watch("fee_payment_method");
   const selectedTier: LoanProductTier | null = selectedProduct?.tiers?.find((tier) => tier.tier_id === watchedTierId) || null;
 
   useEffect(() => {
@@ -118,6 +124,9 @@ const NewLoanApplication = () => {
   const amount = parseFloat(watchedAmount) || 0;
   const term = parseInt(watchedTerm) || 0;
   const interestRate = selectedTier?.interest_rate ?? selectedProduct?.interest_rate ?? 0;
+  const serviceCharge = selectedProduct?.service_charge_mode === 'FIXED'
+    ? Number(selectedProduct.service_charge_fixed_amount || 0)
+    : Number(((amount * Number(selectedProduct?.service_charge_rate || 0)) / 100).toFixed(2));
 
   const flatCalc = amount > 0 && term > 0 ? calculateFlatInterest(amount, interestRate, term) : null;
   const decliningCalc = amount > 0 && term > 0 ? calculateDecliningInterest(amount, interestRate, term) : null;
@@ -136,6 +145,12 @@ const NewLoanApplication = () => {
   useEffect(() => {
     if (eligibilityQuery.data) setEligibilityResult(eligibilityQuery.data);
   }, [eligibilityQuery.data]);
+
+  const insurancePremium = Number(insuranceQuote?.premium || 0);
+  const totalUpfrontFees = Number((serviceCharge + insurancePremium).toFixed(2));
+  const netDisbursement = watchedFeePaymentMethod === 'DEDUCT_FROM_LOAN'
+    ? Number((amount - totalUpfrontFees).toFixed(2))
+    : amount;
 
   if (!user) return null;
 
@@ -178,12 +193,13 @@ const NewLoanApplication = () => {
 
   const submitApplication = async (data: LoanFormData, exceptionReasonValue?: string) => {
     try {
-      await api.post('/loans', {
-        ...data,
-        applied_amount: Number(data.applied_amount),
-        term_months: Number(data.term_months),
-        exception_reason: exceptionReasonValue || null,
-      });
+      const payload = new FormData();
+      Object.entries(data).forEach(([key, value]) => payload.append(key, value ?? ''));
+      payload.set('applied_amount', String(Number(data.applied_amount)));
+      payload.set('term_months', String(Number(data.term_months)));
+      if (exceptionReasonValue) payload.set('exception_reason', exceptionReasonValue);
+      if (feeReceipt) payload.set('fee_receipt', feeReceipt);
+      await api.post('/loans', payload);
     
       const member = membersData?.find((m) => m.member_id === data.member_id);
     
@@ -206,6 +222,14 @@ const NewLoanApplication = () => {
   };
 
   const onSubmit = async (data: LoanFormData) => {
+    if (data.fee_payment_method === 'OUT_OF_POCKET' && !feeReceipt) {
+      toast({ title: 'Receipt Required', description: 'Upload the cash or bank receipt for out-of-pocket fees.', variant: 'destructive' });
+      return;
+    }
+    if (data.fee_payment_method === 'DEDUCT_FROM_LOAN' && netDisbursement <= 0) {
+      toast({ title: 'Invalid Fee Amount', description: 'Service charge and insurance must be less than the loan amount.', variant: 'destructive' });
+      return;
+    }
     if (!eligibilityResult) {
       toast({ title: 'Eligibility Required', description: 'Wait for or run the eligibility check before submitting.', variant: 'destructive' });
       return;
@@ -445,6 +469,44 @@ const NewLoanApplication = () => {
                           </FormItem>
                         )}
                       />
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-4">
+                      <div>
+                        <h3 className="font-semibold">Upfront Service Charge & Insurance</h3>
+                        <p className="text-sm text-muted-foreground">Choose how the member will pay these fees. They are collected only when the loan is finally approved and disbursed.</p>
+                      </div>
+                      <FormField control={form.control} name="fee_payment_method" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Fee Payment Method *</FormLabel>
+                          <Select value={field.value} onValueChange={(value) => { field.onChange(value); if (value === 'DEDUCT_FROM_LOAN') setFeeReceipt(null); }}>
+                            <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                            <SelectContent>
+                              <SelectItem value="DEDUCT_FROM_LOAN">Deduct from Loan</SelectItem>
+                              <SelectItem value="OUT_OF_POCKET">Pay Out-of-Pocket</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>{field.value === 'DEDUCT_FROM_LOAN' ? 'Fees reduce the amount delivered to the member.' : 'The member receives the full principal after a receipt is verified.'}</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      {watchedFeePaymentMethod === 'OUT_OF_POCKET' && (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <FormField control={form.control} name="fee_receipt_number" render={({ field }) => <FormItem><FormLabel>Receipt Number</FormLabel><FormControl><Input placeholder="Bank or cash receipt number" {...field} /></FormControl><FormMessage /></FormItem>} />
+                          <div className="space-y-2">
+                            <Label htmlFor="fee-receipt">Receipt File *</Label>
+                            <Input id="fee-receipt" type="file" accept="image/*,.pdf" onChange={(event) => setFeeReceipt(event.target.files?.[0] || null)} />
+                            <p className="text-xs text-muted-foreground">Upload an image or PDF receipt before submission.</p>
+                          </div>
+                        </div>
+                      )}
+                      <div className="grid gap-2 rounded-md bg-muted p-3 text-sm sm:grid-cols-2">
+                        <div className="flex justify-between gap-3"><span>Gross loan</span><strong>ETB {amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                        <div className="flex justify-between gap-3"><span>Service charge</span><strong>ETB {serviceCharge.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                        <div className="flex justify-between gap-3"><span>Insurance held</span><strong>ETB {insurancePremium.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                        <div className="flex justify-between gap-3"><span>Total upfront fees</span><strong>ETB {totalUpfrontFees.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                        <div className="flex justify-between gap-3 border-t pt-2 sm:col-span-2"><span className="font-semibold">Member receives at disbursement</span><strong className={netDisbursement <= 0 ? 'text-destructive' : 'text-primary'}>ETB {netDisbursement.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                      </div>
                     </div>
 
                     <FormField

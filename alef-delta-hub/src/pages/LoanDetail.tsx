@@ -37,6 +37,10 @@ const LoanDetail = () => {
   const [auditNote, setAuditNote] = useState("");
   const [overrideAcknowledged, setOverrideAcknowledged] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
+  const [closureOpen, setClosureOpen] = useState(false);
+  const [insuranceClaimMade, setInsuranceClaimMade] = useState<'YES' | 'NO'>('NO');
+  const [insuranceClosureReason, setInsuranceClosureReason] = useState('');
+  const closurePromptedFor = useRef<string | null>(null);
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
@@ -51,7 +55,7 @@ const LoanDetail = () => {
   }, [navigate]);
 
   // 1. Fetch Loan
-  const { data: loan, isLoading: loadingLoan } = useQuery({
+  const { data: loan, isLoading: loadingLoan, refetch: refetchLoan } = useQuery({
     queryKey: ['loan', id],
     queryFn: async () => {
       const res = await api.get<LoanApplication>(`/loans/${id}`);
@@ -92,6 +96,14 @@ const LoanDetail = () => {
     enabled: !!loan
   });
   const eligibility: EligibilityCheck | undefined = approvalStatus?.current_evaluation?.result_snapshot;
+
+  useEffect(() => {
+    const canResolve = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+    if (canResolve && loan?.is_fully_paid && loan.workflow_status === 'APPROVED' && closurePromptedFor.current !== loan.loan_id) {
+      closurePromptedFor.current = loan.loan_id;
+      setClosureOpen(true);
+    }
+  }, [loan, user]);
 
   if (!user) return null;
   if (loadingLoan) return <div className="p-8 text-center">Loading loan details...</div>;
@@ -220,13 +232,33 @@ const LoanDetail = () => {
     }
   };
 
+  const handleCloseLoan = async () => {
+    if (insuranceClaimMade === 'YES' && insuranceClosureReason.trim().length < 10) {
+      toast({ title: 'Claim Reason Required', description: 'Describe the insurance claim in at least 10 characters.', variant: 'destructive' });
+      return;
+    }
+    try {
+      await api.post(`/loans/${id}/closure`, {
+        insurance_claim_made: insuranceClaimMade === 'YES',
+        reason: insuranceClosureReason.trim() || null,
+        idempotency_key: `LOAN_CLOSE:${id}:${crypto.randomUUID()}`
+      });
+      setClosureOpen(false);
+      await refetchLoan();
+      toast({ title: 'Loan Closed', description: insuranceClaimMade === 'YES' ? 'Insurance was marked utilized and excluded from profit.' : 'Unused insurance was recognized as distributable revenue.' });
+    } catch (error: any) {
+      toast({ title: 'Closure Failed', description: error.response?.data?.message || 'Could not close the loan.', variant: 'destructive' });
+    }
+  };
+
   const isManagerOrAdmin = user.role === "MANAGER" || user.role === "ADMIN" || user.role === "BOARD_MEMBER";
+  const canCloseLoan = user.role === 'MANAGER' || user.role === 'ADMIN';
   const loanNotYetApproved = loan.workflow_status !== "APPROVED";
   const loanAwaitingApproval = loan.workflow_status === "UNDER_REVIEW" || loan.workflow_status === "PENDING";
   
   const canApprove = isManagerOrAdmin && loanAwaitingApproval;
   const canReject = canApprove || (user.role === 'CREDIT_OFFICER' && loan.created_by_user_id === user.user_id && loanAwaitingApproval);
-  const isAlreadyApproved = loan.workflow_status === "APPROVED";
+  const isAlreadyApproved = loan.workflow_status === "APPROVED" || loan.workflow_status === "CLOSED";
 
   // Mapping backend eligibility response to frontend UI structure
   const statusCheck = eligibility?.checks?.find((c: any) => c.name === 'status');
@@ -381,6 +413,21 @@ const LoanDetail = () => {
                     <div>
                       <p className="text-sm text-muted-foreground mb-2">Purpose</p>
                       <p className="text-sm p-3 bg-muted rounded-lg">{loan.purpose_description}</p>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Upfront Fees & Disbursement</h3><Badge variant="outline">{loan.fee_collection_status || 'PENDING'}</Badge></div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div><p className="text-muted-foreground">Payment method</p><p className="font-medium">{loan.fee_payment_method === 'OUT_OF_POCKET' ? 'Pay Out-of-Pocket' : 'Deduct from Loan'}</p></div>
+                        <div><p className="text-muted-foreground">Gross principal</p><CurrencyDisplay amount={loan.gross_disbursement_amount ?? loan.applied_amount} className="font-semibold" /></div>
+                        <div><p className="text-muted-foreground">Service charge</p><CurrencyDisplay amount={loan.service_charge_amount || 0} className="font-semibold" /></div>
+                        <div><p className="text-muted-foreground">Insurance held</p><CurrencyDisplay amount={loan.insurance_premium || 0} className="font-semibold" /></div>
+                        <div><p className="text-muted-foreground">Total fees</p><CurrencyDisplay amount={loan.total_upfront_fee_amount || 0} className="font-semibold" /></div>
+                        <div><p className="text-muted-foreground">Member receives</p><CurrencyDisplay amount={loan.net_disbursement_amount ?? loan.applied_amount} className="font-bold text-primary" /></div>
+                      </div>
+                      <div className="text-sm"><span className="text-muted-foreground">Insurance status: </span><strong>{loan.insurance_escrow_status || 'NOT_APPLICABLE'}</strong></div>
+                      {loan.fee_receipt_url && <a className="text-sm text-primary underline" href={getImageUrl(loan.fee_receipt_url)} target="_blank" rel="noreferrer">View uploaded fee receipt{loan.fee_receipt_number ? ` (${loan.fee_receipt_number})` : ''}</a>}
+                      {canCloseLoan && loan.is_fully_paid && loan.workflow_status === 'APPROVED' && <Button type="button" variant="outline" onClick={() => setClosureOpen(true)}>Complete Loan Closure Checklist</Button>}
                     </div>
 
                     <div className="pt-4 border-t">
@@ -594,7 +641,7 @@ const LoanDetail = () => {
                           <li>
                             • Eligibility approval does not deposit, withdraw, or transfer member funds
                           </li>
-                          <li>• Disbursement remains a separate controlled operation</li>
+                          <li>• Final required approval collects the configured fees and records the controlled disbursement values atomically</li>
                           <li>
                             • First payment due:{" "}
                             {loan.next_payment_date
@@ -631,6 +678,27 @@ const LoanDetail = () => {
           </div>
         </div>
       </main>
+      <Dialog open={closureOpen} onOpenChange={setClosureOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Loan Closure Checklist</DialogTitle>
+            <DialogDescription>This loan is fully repaid. Resolve the held insurance before marking the loan closed.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border p-3 text-sm"><p className="text-muted-foreground">Insurance held</p><CurrencyDisplay amount={loan.insurance_premium || 0} className="text-lg font-bold" /></div>
+            <div className="space-y-2">
+              <Label>Was any insurance claim made during this loan period? *</Label>
+              <Select value={insuranceClaimMade} onValueChange={(value: 'YES' | 'NO') => setInsuranceClaimMade(value)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="NO">No — recognize unused insurance as revenue</SelectItem><SelectItem value="YES">Yes — mark insurance as utilized</SelectItem></SelectContent>
+              </Select>
+            </div>
+            {insuranceClaimMade === 'YES' && <div className="space-y-2"><Label>Insurance Claim Reason *</Label><Textarea rows={4} value={insuranceClosureReason} onChange={(event) => setInsuranceClosureReason(event.target.value)} placeholder="Describe the claim, payment, or covered loss..." /></div>}
+            <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">No claim: the held amount becomes profit without adding cash again. Claim made: the held cash is written out and never enters distributable profit.</div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setClosureOpen(false)}>Cancel</Button><Button onClick={handleCloseLoan} disabled={!canCloseLoan}>Confirm & Close Loan</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -14,7 +14,10 @@ import {
 } from './member.repository.js';
 import { createBeneficiary, listBeneficiaries } from '../beneficiaries/beneficiary.repository.js';
 import { toPublicUrl } from '../../core/utils/fileStorage.js';
-import { query } from '../../core/db.js';
+import { query, withTransaction } from '../../core/db.js';
+import { postMasterEntry } from '../profit-distributions/master-ledger.js';
+import { insertAuditLog } from '../admin/audit.repository.js';
+import { addisAbabaDate } from '../profit-distributions/money.js';
 
 function generateMembershipNumber() {
   return `MEM-${Date.now()}`;
@@ -253,14 +256,31 @@ export async function removeMember(memberId, actor) {
 }
 
 export async function activateMember(memberId, actor) {
-  const member = await findMemberById(memberId);
-  if (!member) {
-    throw httpError(404, 'Member not found');
-  }
-  if (member.status === 'ACTIVE') {
-    throw httpError(400, 'Member is already active');
-  }
-  await updateMember(memberId, { status: 'ACTIVE' });
+  const actorId = typeof actor === 'string' ? actor : actor?.userId;
+  await withTransaction(async (connection) => {
+    const member = await findMemberById(memberId, connection, true);
+    if (!member) throw httpError(404, 'Member not found');
+    if (member.status === 'ACTIVE') throw httpError(400, 'Member is already active');
+    await updateMember(memberId, { status: 'ACTIVE' }, connection);
+    const [configRows] = await connection.query("SELECT config_value FROM system_config WHERE config_key = 'registration_fee_etb'");
+    const registrationFee = Number(configRows[0]?.config_value || 0);
+    if (registrationFee > 0) {
+      await postMasterEntry(connection, {
+        entryDate: addisAbabaDate(),
+        direction: 'INFLOW',
+        entryType: 'REGISTRATION_FEE',
+        amount: registrationFee,
+        affectsProfit: true,
+        sourceType: 'MEMBER_ACTIVATION',
+        sourceId: memberId,
+        sourceComponent: 'REGISTRATION_FEE',
+        performedBy: actorId || null,
+        description: `Registration fee recognized on first activation of ${member.membership_no}`,
+        idempotencyKey: `REGISTRATION_FEE:${memberId}`
+      });
+    }
+    await insertAuditLog({ userId: actorId || null, action: 'ACTIVATE_MEMBER', entity: 'members', entityId: memberId, oldValue: { status: member.status }, newValue: { status: 'ACTIVE' }, connection });
+  });
   return getMemberById(memberId);
 }
 
@@ -292,4 +312,3 @@ export async function resetMemberPasswordById(memberId, newPassword, actor) {
   
   return { success: true, message: 'Member password reset successfully' };
 }
-

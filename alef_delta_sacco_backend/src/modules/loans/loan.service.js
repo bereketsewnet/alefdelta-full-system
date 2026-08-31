@@ -28,6 +28,78 @@ import { snapshotBoardVoters, recordVote, getApprovalStatus, resetApprovalVotes 
 import { quoteLoanInsurance } from './insurance.js';
 import { findTierById } from '../loan-products/loan-tier.repository.js';
 import { createEligibilityEvaluation, findEligibilityEvaluation, listLoanEligibilityEvaluations } from './eligibility.repository.js';
+import { postMasterEntry } from '../profit-distributions/master-ledger.js';
+import { addisAbabaDate, centsToEtb, etbToCents } from '../profit-distributions/money.js';
+
+export function calculateUpfrontLoanFees({ principal, serviceCharge, insurancePremium, paymentMethod }) {
+  if (!['DEDUCT_FROM_LOAN', 'OUT_OF_POCKET'].includes(paymentMethod)) {
+    throw httpError(400, 'Select how the service charge and insurance fee will be paid');
+  }
+  const principalCents = etbToCents(principal);
+  const serviceCents = etbToCents(serviceCharge || 0);
+  const insuranceCents = etbToCents(insurancePremium || 0);
+  const totalFeeCents = serviceCents + insuranceCents;
+  const netCents = paymentMethod === 'DEDUCT_FROM_LOAN'
+    ? principalCents - totalFeeCents
+    : principalCents;
+  if (principalCents <= 0n) throw httpError(400, 'Loan amount must be greater than zero');
+  if (netCents <= 0n) throw httpError(400, 'Upfront fees must be less than the approved loan amount');
+  return {
+    grossDisbursement: centsToEtb(principalCents),
+    serviceCharge: centsToEtb(serviceCents),
+    insurancePremium: centsToEtb(insuranceCents),
+    totalUpfrontFees: centsToEtb(totalFeeCents),
+    netDisbursement: centsToEtb(netCents)
+  };
+}
+
+async function collectUpfrontLoanFees(connection, loan, approvedAmount, actor) {
+  if (loan.fee_collection_status === 'COLLECTED') return loan;
+  if (!loan.fee_payment_method) throw httpError(409, 'Loan fee payment method is missing');
+  if (loan.fee_payment_method === 'OUT_OF_POCKET' && !loan.fee_receipt_url) {
+    throw httpError(409, 'An out-of-pocket fee receipt must be uploaded before disbursement');
+  }
+  const fees = calculateUpfrontLoanFees({
+    principal: approvedAmount,
+    serviceCharge: loan.service_charge_amount,
+    insurancePremium: loan.insurance_premium,
+    paymentMethod: loan.fee_payment_method
+  });
+  let serviceLedgerId = loan.service_charge_ledger_id || null;
+  let insuranceLedgerId = loan.insurance_held_ledger_id || null;
+  if (etbToCents(fees.serviceCharge) > 0n) {
+    const result = await postMasterEntry(connection, {
+      entryDate: addisAbabaDate(), direction: 'INFLOW', entryType: 'SERVICE_CHARGE_INFLOW',
+      amount: fees.serviceCharge, affectsProfit: true, sourceType: 'LOAN_APPLICATION',
+      sourceId: loan.loan_id, sourceComponent: 'SERVICE_CHARGE', performedBy: actor.userId,
+      description: `Service charge collected at disbursement for loan ${loan.loan_id}`,
+      idempotencyKey: `LOAN_SERVICE_CHARGE:${loan.loan_id}`
+    });
+    serviceLedgerId = result.entry.ledger_id;
+  }
+  if (etbToCents(fees.insurancePremium) > 0n) {
+    const result = await postMasterEntry(connection, {
+      entryDate: addisAbabaDate(), direction: 'INFLOW', entryType: 'INSURANCE_HELD',
+      amount: fees.insurancePremium, affectsProfit: false, sourceType: 'LOAN_APPLICATION',
+      sourceId: loan.loan_id, sourceComponent: 'INSURANCE_HELD', performedBy: actor.userId,
+      description: `Insurance premium held in escrow for loan ${loan.loan_id}`,
+      idempotencyKey: `LOAN_INSURANCE_HELD:${loan.loan_id}`
+    });
+    insuranceLedgerId = result.entry.ledger_id;
+  }
+  await updateLoan(loan.loan_id, {
+    gross_disbursement_amount: fees.grossDisbursement,
+    total_upfront_fee_amount: fees.totalUpfrontFees,
+    net_disbursement_amount: fees.netDisbursement,
+    fee_collection_status: 'COLLECTED',
+    fees_collected_at: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+    fees_collected_by: actor.userId,
+    service_charge_ledger_id: serviceLedgerId,
+    insurance_escrow_status: etbToCents(fees.insurancePremium) > 0n ? 'HELD' : 'NOT_APPLICABLE',
+    insurance_held_ledger_id: insuranceLedgerId
+  }, connection);
+  return findLoanById(loan.loan_id, connection);
+}
 
 function firstDueDate(disbursementDate, frequency) {
   if (frequency === 'WEEKLY') return dayjs(disbursementDate).add(1, 'week').format('YYYY-MM-DD');
@@ -69,6 +141,15 @@ export async function createLoan(payload, actor) {
   const serviceChargeAmount = serviceChargeMode === 'FIXED'
     ? Number(product.service_charge_fixed_amount || 0)
     : Number(((Number(payload.applied_amount) * Number(product.service_charge_rate || 0)) / 100).toFixed(2));
+  if (payload.fee_payment_method === 'OUT_OF_POCKET' && !payload.fee_receipt_url) {
+    throw httpError(400, 'Receipt upload is required when fees are paid out-of-pocket');
+  }
+  const feeQuote = calculateUpfrontLoanFees({
+    principal: payload.applied_amount,
+    serviceCharge: serviceChargeAmount,
+    insurancePremium: insurance.premium,
+    paymentMethod: payload.fee_payment_method
+  });
   return withTransaction(async (connection) => {
     await createLoanApplication({
       loan_id: loanId,
@@ -83,6 +164,14 @@ export async function createLoan(payload, actor) {
       penalty_rate: product.penalty_rate || 2, penalty_mode: product.penalty_mode || 'PERCENT', penalty_fixed_amount: product.penalty_fixed_amount || 0, penalty_grace_days: product.penalty_grace_days || 0, penalty_escalation_enabled: product.penalty_escalation_enabled || false, penalty_escalation_value: product.penalty_escalation_value || 0,
       service_charge_mode: serviceChargeMode, service_charge_rate: product.service_charge_rate || 0, service_charge_fixed_amount: product.service_charge_fixed_amount || 0, service_charge_amount: serviceChargeAmount,
       borrower_age: borrowerAge, insurance_enabled: insurance.enabled, insurance_ceiling_rate: insurance.ceilingRate, insurance_rate: insurance.rate, insurance_premium: insurance.premium, insurance_renewal_date: insurance.annualRenewalRequired ? dayjs().add(1, 'year').format('YYYY-MM-DD') : null,
+      fee_payment_method: payload.fee_payment_method,
+      fee_receipt_number: payload.fee_receipt_number || null,
+      fee_receipt_url: payload.fee_receipt_url || null,
+      gross_disbursement_amount: feeQuote.grossDisbursement,
+      total_upfront_fee_amount: feeQuote.totalUpfrontFees,
+      net_disbursement_amount: feeQuote.netDisbursement,
+      fee_collection_status: 'PENDING',
+      insurance_escrow_status: etbToCents(feeQuote.insurancePremium) > 0n ? 'PENDING' : 'NOT_APPLICABLE',
       purpose_description: payload.purpose_description,
       repayment_frequency: payload.repayment_frequency || 'MONTHLY',
       workflow_status: 'UNDER_REVIEW'
@@ -103,7 +192,8 @@ export async function createLoan(payload, actor) {
       action: gatekeeperResult.passed ? 'CREATE_LOAN' : 'CREATE_LOAN_EXCEPTION',
       entity: 'loan_applications',
       entityId: loanId,
-      metadata: { evaluation_id: evaluationId, exception_reason: payload.exception_reason || null, failed_checks: gatekeeperResult.checks.filter((check) => !check.pass).map((check) => check.name) }
+      metadata: { evaluation_id: evaluationId, exception_reason: payload.exception_reason || null, failed_checks: gatekeeperResult.checks.filter((check) => !check.pass).map((check) => check.name), fee_payment_method: payload.fee_payment_method, fee_quote: feeQuote },
+      connection
     });
     return findLoanById(loanId, connection);
   });
@@ -163,7 +253,11 @@ export async function approveLoan(loanId, payload, actor) {
     throw httpError(400, 'Amount, term, or rate changed. Update the application and refresh eligibility before voting.');
   }
   return withTransaction(async (connection) => {
-    const evaluation = await findEligibilityEvaluation(loan.latest_eligibility_evaluation_id, connection);
+    const [lockedRows] = await connection.query('SELECT * FROM loan_applications WHERE loan_id = ? FOR UPDATE', [loanId]);
+    const lockedLoan = lockedRows[0];
+    if (!lockedLoan) throw httpError(404, 'Loan not found');
+    if (lockedLoan.workflow_status === 'APPROVED') return lockedLoan;
+    const evaluation = await findEligibilityEvaluation(lockedLoan.latest_eligibility_evaluation_id, connection);
     if (!evaluation) throw httpError(400, 'Run eligibility validation before approving this loan');
     if (!evaluation.passed && (!payload.override_acknowledged || !payload.override_reason?.trim())) {
       throw httpError(400, 'Explicit exception acknowledgement and reason are required for failed eligibility');
@@ -182,7 +276,7 @@ export async function approveLoan(loanId, payload, actor) {
       throw httpError(400, 'All approvals must acknowledge the same current eligibility evaluation');
     }
     if (!approvals.manager_approved || approvals.board_approved < approvals.board_required) {
-      await insertAuditLog({ userId: actor.userId, action: 'LOAN_APPROVAL_VOTE', entity: 'loan_applications', entityId: loanId, metadata: approvals });
+      await insertAuditLog({ userId: actor.userId, action: 'LOAN_APPROVAL_VOTE', entity: 'loan_applications', entityId: loanId, metadata: approvals, connection });
       return { ...(await findLoanById(loanId, connection)), approval_status: approvals };
     }
     if (payload.lien_amount && payload.lien_account_id) {
@@ -201,15 +295,16 @@ export async function approveLoan(loanId, payload, actor) {
       );
     }
     const disbursementDate = payload.disbursement_date || dayjs().format('YYYY-MM-DD');
-    const repaymentFrequency = loan.repayment_frequency || 'MONTHLY';
+    const repaymentFrequency = lockedLoan.repayment_frequency || 'MONTHLY';
     const dueDate = firstDueDate(disbursementDate, repaymentFrequency);
+    await collectUpfrontLoanFees(connection, lockedLoan, payload.approved_amount || lockedLoan.applied_amount, actor);
     await updateLoan(
       loanId,
       {
         workflow_status: 'APPROVED',
-        approved_amount: payload.approved_amount || loan.applied_amount,
-        interest_rate: payload.interest_rate || loan.interest_rate,
-        term_months: payload.term_months || loan.term_months,
+        approved_amount: payload.approved_amount || lockedLoan.applied_amount,
+        interest_rate: payload.interest_rate || lockedLoan.interest_rate,
+        term_months: payload.term_months || lockedLoan.term_months,
         interest_type: 'DECLINING',
         disbursement_date: disbursementDate,
         next_payment_date: dueDate
@@ -221,7 +316,8 @@ export async function approveLoan(loanId, payload, actor) {
       action: 'APPROVE_LOAN',
       entity: 'loan_applications',
       entityId: loanId,
-      metadata: payload
+      metadata: payload,
+      connection
     });
     
     const approvedLoan = await findLoanById(loanId, connection);
@@ -251,6 +347,59 @@ export async function approveLoan(loanId, payload, actor) {
     }
     
     return approvedLoan;
+  });
+}
+
+export async function closeLoan(loanId, payload, actor) {
+  if (!['ADMIN', 'MANAGER'].includes(actor.role)) throw httpError(403, 'Only Admin or Manager can close a fully repaid loan');
+  return withTransaction(async (connection) => {
+    const [lockedRows] = await connection.query('SELECT * FROM loan_applications WHERE loan_id = ? FOR UPDATE', [loanId]);
+    const loan = lockedRows[0];
+    if (!loan) throw httpError(404, 'Loan not found');
+    if (loan.closure_idempotency_key === payload.idempotency_key || loan.workflow_status === 'CLOSED') return loan;
+    if (loan.workflow_status !== 'APPROVED' || !Boolean(loan.is_fully_paid) || etbToCents(loan.outstanding_balance || 0) !== 0n || etbToCents(loan.penalty_due || 0) !== 0n) {
+      throw httpError(409, 'Loan can be closed only after principal and penalties are fully paid');
+    }
+    if (loan.insurance_escrow_status === 'PENDING') throw httpError(409, 'Insurance fee has not been collected for this loan');
+    let resolutionLedgerId = loan.insurance_resolution_ledger_id || null;
+    const premiumCents = etbToCents(loan.insurance_premium || 0);
+    let escrowStatus = loan.insurance_escrow_status;
+    if (loan.insurance_escrow_status === 'HELD' && premiumCents > 0n) {
+      if (payload.insurance_claim_made) {
+        const result = await postMasterEntry(connection, {
+          entryDate: addisAbabaDate(), direction: 'OUTFLOW', entryType: 'INSURANCE_CLAIM_UTILIZED',
+          amount: centsToEtb(premiumCents), affectsProfit: false, sourceType: 'LOAN_CLOSURE',
+          sourceId: loanId, sourceComponent: 'INSURANCE_CLAIM', performedBy: actor.userId,
+          description: `Insurance escrow utilized for claim on loan ${loanId}: ${payload.reason.trim()}`,
+          idempotencyKey: `LOAN_INSURANCE_CLAIM:${loanId}`
+        });
+        resolutionLedgerId = result.entry.ledger_id;
+        escrowStatus = 'UTILIZED';
+      } else {
+        const result = await postMasterEntry(connection, {
+          entryDate: addisAbabaDate(), direction: 'INFLOW', entryType: 'UNUTILIZED_INSURANCE_REVENUE',
+          amount: centsToEtb(premiumCents), affectsProfit: true, affectsBalance: false,
+          sourceType: 'LOAN_CLOSURE', sourceId: loanId, sourceComponent: 'INSURANCE_RECOGNITION',
+          performedBy: actor.userId, description: `Unused insurance escrow recognized as revenue for loan ${loanId}`,
+          idempotencyKey: `LOAN_INSURANCE_RECOGNIZED:${loanId}`
+        });
+        resolutionLedgerId = result.entry.ledger_id;
+        escrowStatus = 'RECOGNIZED';
+      }
+    }
+    await updateLoan(loanId, {
+      workflow_status: 'CLOSED', insurance_escrow_status: escrowStatus,
+      insurance_resolution_ledger_id: resolutionLedgerId,
+      insurance_claim_made: payload.insurance_claim_made ? 1 : 0,
+      insurance_closure_reason: payload.reason || null,
+      loan_closed_at: dayjs().format('YYYY-MM-DD HH:mm:ss'), loan_closed_by: actor.userId,
+      closure_idempotency_key: payload.idempotency_key
+    }, connection);
+    await insertAuditLog({
+      userId: actor.userId, action: 'CLOSE_LOAN_INSURANCE_RESOLUTION', entity: 'loan_applications', entityId: loanId,
+      metadata: { insurance_claim_made: payload.insurance_claim_made, reason: payload.reason || null, previous_escrow_status: loan.insurance_escrow_status, insurance_escrow_status: escrowStatus, resolution_ledger_id: resolutionLedgerId }, connection
+    });
+    return findLoanById(loanId, connection);
   });
 }
 

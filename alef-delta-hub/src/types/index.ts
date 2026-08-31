@@ -188,6 +188,7 @@ export interface LoanProductTier {
   loan_amount_max_etb: number | null;
   max_term_months: number;
   interest_rate: number;
+  interest_method?: 'STANDARD' | 'PROFIT_SHARING';
   required_pre_savings_pct: number;
   required_share_purchase_pct: number;
   eligible_savings_products: string[];
@@ -270,6 +271,23 @@ export interface LoanApplication {
   eligibility_exception_required?: boolean;
   officer_exception_reason?: string | null;
   created_by_user_id?: string | null;
+  service_charge_amount?: number;
+  insurance_premium?: number;
+  fee_payment_method?: 'DEDUCT_FROM_LOAN' | 'OUT_OF_POCKET' | null;
+  fee_receipt_number?: string | null;
+  fee_receipt_url?: string | null;
+  gross_disbursement_amount?: number | null;
+  total_upfront_fee_amount?: number;
+  net_disbursement_amount?: number | null;
+  fee_collection_status?: 'PENDING' | 'COLLECTED';
+  fees_collected_at?: string | null;
+  insurance_escrow_status?: 'PENDING' | 'HELD' | 'RECOGNIZED' | 'UTILIZED' | 'NOT_APPLICABLE';
+  insurance_claim_made?: boolean | null;
+  insurance_closure_reason?: string | null;
+  loan_closed_at?: string | null;
+  is_fully_paid?: boolean;
+  outstanding_balance?: number;
+  penalty_due?: number;
 }
 
 // Guarantor

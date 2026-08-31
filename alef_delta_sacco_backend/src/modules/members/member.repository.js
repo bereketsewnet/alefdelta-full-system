@@ -5,8 +5,9 @@ export async function findMemberByPhone(phone) {
   return rows[0];
 }
 
-export async function findMemberById(memberId) {
-  const rows = await query('SELECT * FROM members WHERE member_id = ?', [memberId]);
+export async function findMemberById(memberId, connection = null, forUpdate = false) {
+  const sql = `SELECT * FROM members WHERE member_id = ?${forUpdate ? ' FOR UPDATE' : ''}`;
+  const rows = connection ? (await connection.query(sql, [memberId]))[0] : await query(sql, [memberId]);
   return rows[0];
 }
 
@@ -120,7 +121,7 @@ export async function createMember(member) {
   );
 }
 
-export async function updateMember(memberId, updates) {
+export async function updateMember(memberId, updates, connection = null) {
   const fields = [];
   const params = [];
   Object.entries(updates).forEach(([key, value]) => {
@@ -129,7 +130,9 @@ export async function updateMember(memberId, updates) {
   });
   if (!fields.length) return;
   params.push(memberId);
-  await execute(`UPDATE members SET ${fields.join(', ')}, updated_at = NOW() WHERE member_id = ?`, params);
+  const sql = `UPDATE members SET ${fields.join(', ')}, updated_at = NOW() WHERE member_id = ?`;
+  if (connection) await connection.execute(sql, params);
+  else await execute(sql, params);
 }
 
 export async function updateMemberPassword(memberId, passwordHash) {
@@ -208,4 +211,3 @@ export async function countMembers(filters) {
   const rows = await query(`SELECT COUNT(*) as total FROM members ${whereClause}`, params);
   return rows[0].total;
 }
-

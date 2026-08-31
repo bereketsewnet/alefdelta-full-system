@@ -6,11 +6,21 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { LogIn, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, LogIn, ShieldCheck } from "lucide-react";
+
+const demoAccounts = [
+  { label: "Admin", username: "admin" },
+  { label: "Teller", username: "teller" },
+  { label: "Credit Officer", username: "credit.officer" },
+  { label: "Manager", username: "manager" },
+  { label: "Board Member", username: "e2e_board1" },
+  { label: "Auditor", username: "e2e_auditor" },
+] as const;
 
 const Login = () => {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -18,6 +28,11 @@ const Login = () => {
   // Hide by default; can be enabled via env if needed (rebuild frontend after changing env).
   const showForgotPasswordLink =
     String(import.meta.env.VITE_SHOW_STAFF_FORGOT_PASSWORD || "").toLowerCase() === "true";
+
+  const selectDemoAccount = (username: string) => {
+    setIdentifier(username);
+    setPassword("Demo1234");
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,14 +184,26 @@ const Login = () => {
                     </Link>
                   )}
                 </div>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pr-10"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showPassword}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
 
               <Button
@@ -200,34 +227,26 @@ const Login = () => {
             </form>
 
             <div className="mt-6 p-4 bg-muted/50 rounded-lg border shadow-sm">
-              <p className="text-xs font-semibold text-muted-foreground mb-3">
-                Sample Login Credentials:
-              </p>
-              <div className="text-xs text-muted-foreground grid gap-y-2">
-                <div className="grid grid-cols-[90px_1fr] items-start gap-2 border-b border-border/50 pb-1">
-                  <span className="font-medium">Admin:</span>
-                  <span className="font-mono break-all">admin / admin@gmail.com</span>
+              <div className="mb-3 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                <div>
+                  <p className="text-xs font-semibold">Demo Accounts</p>
+                  <p className="text-[11px] text-muted-foreground">Click an account to fill the username and password.</p>
                 </div>
-                <div className="grid grid-cols-[90px_1fr] items-start gap-2 border-b border-border/50 pb-1">
-                  <span className="font-medium">Teller:</span>
-                  <span className="font-mono break-all">teller / teller@gmail.com</span>
-                </div>
-                <div className="grid grid-cols-[90px_1fr] items-start gap-2 border-b border-border/50 pb-1">
-                  <span className="font-medium">Credit Officer:</span>
-                  <span className="font-mono break-all">credit.officer / credit.officer..</span>
-                </div>
-                <div className="grid grid-cols-[90px_1fr] items-start gap-2 pb-1">
-                  <span className="font-medium">Manager:</span>
-                  <span className="font-mono break-all">manager / manager@gmail.com</span>
-                </div>
-                <div className="grid grid-cols-[90px_1fr] items-start gap-2 pb-1">
-                  <span className="font-medium">Board Member:</span>
-                  <span className="font-mono break-all">e2e_board1 / e2e_board1@example.test</span>
-                </div>
-                <div className="mt-2 pt-2 border-t border-border/50 text-center">
-                  <span className="font-medium">Password: </span>
-                  <span className="font-mono font-bold bg-background px-1.5 py-0.5 rounded border">Demo1234</span>
-                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {demoAccounts.map((account) => (
+                  <button
+                    key={account.username}
+                    type="button"
+                    onClick={() => selectDemoAccount(account.username)}
+                    className="rounded-md border bg-background px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`Use ${account.label} demo account`}
+                  >
+                    <span className="block text-xs font-medium">{account.label}</span>
+                    <span className="block truncate font-mono text-[11px] text-muted-foreground">{account.username}</span>
+                  </button>
+                ))}
               </div>
             </div>
           </CardContent>

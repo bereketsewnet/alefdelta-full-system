@@ -211,7 +211,31 @@ const Dashboard = () => {
               <KPICard title="Loans Awaiting Review" value={kpi.pending_approvals} icon={FileText} variant="warning" />
               <KPICard title="Active Members" value={kpi.active_members} icon={Users} variant="success" />
             </div>
-            <Card><CardHeader><CardTitle>Loan approvals</CardTitle><CardDescription>Open the loan list to review applications, schedules, guarantors, and collateral before approving or rejecting.</CardDescription></CardHeader><CardContent><Button onClick={() => navigate('/loans')}>Review loan applications</Button></CardContent></Card>
+            <div className="grid gap-4 md:grid-cols-2"><Card><CardHeader><CardTitle>Loan approvals</CardTitle><CardDescription>Review applications, schedules, guarantors, and collateral.</CardDescription></CardHeader><CardContent><Button onClick={() => navigate('/loans')}>Review loan applications</Button></CardContent></Card><Card><CardHeader><CardTitle>Profit distributions</CardTitle><CardDescription>Review frozen profit reports and record your Board decision.</CardDescription></CardHeader><CardContent><Button onClick={() => navigate('/admin/profit-distributions')}>Review profit distributions</Button></CardContent></Card></div>
+          </div>
+        );
+      case "AUDITOR":
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold mb-2">Auditor Dashboard</h2>
+              <p className="text-muted-foreground">Read-only access to financial reports, the master ledger, and frozen profit distributions.</p>
+            </div>
+            <div className="grid gap-6 md:grid-cols-3">
+              <KPICard title="Total Savings" value={formatCurrency(kpi.total_savings)} icon={Wallet} variant="primary" />
+              <KPICard title="Loans Outstanding" value={formatCurrency(kpi.total_loans_outstanding)} icon={DollarSign} variant="accent" />
+              <KPICard title="Active Members" value={kpi.active_members} icon={Users} variant="success" />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader><CardTitle>Financial Reports</CardTitle><CardDescription>Review and export operational, portfolio, cash-flow, and regulatory reports.</CardDescription></CardHeader>
+                <CardContent><Button onClick={() => navigate('/reports')}><FileText className="mr-2 h-4 w-4" />Open Reports</Button></CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Master Ledger & Profit Distribution</CardTitle><CardDescription>Inspect append-only ledger records, policies, allocation reports, and Board decisions without changing data.</CardDescription></CardHeader>
+                <CardContent><Button onClick={() => navigate('/admin/profit-distributions')}><Wallet className="mr-2 h-4 w-4" />Open Financial Audit</Button></CardContent>
+              </Card>
+            </div>
           </div>
         );
       case "TELLER":
@@ -723,6 +747,7 @@ const Dashboard = () => {
                 <Button variant="outline" size="lg" onClick={() => navigate("/admin/account-products")}>
                   Account Product Management
                 </Button>
+                <Button variant="outline" size="lg" onClick={() => navigate("/admin/profit-distributions")}>SACCO Master Ledger & Profit Distribution</Button>
                 <Button variant="outline" size="lg" onClick={() => navigate("/admin/users")}>
                   User Management
                 </Button>

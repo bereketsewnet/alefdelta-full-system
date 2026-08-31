@@ -10,6 +10,9 @@ export const createLoanSchema = Joi.object({
   interest_type: Joi.string().valid('DECLINING').optional(),
   purpose_description: Joi.string().required(),
   borrower_age: Joi.number().integer().min(18).max(120).optional(),
+  fee_payment_method: Joi.string().valid('DEDUCT_FROM_LOAN', 'OUT_OF_POCKET').required(),
+  fee_receipt_number: Joi.string().trim().max(120).allow(null, '').optional(),
+  fee_receipt_url: Joi.string().max(500).allow(null, '').optional(),
   repayment_frequency: Joi.string().valid('MONTHLY', 'WEEKLY', 'QUARTERLY').default('MONTHLY')
   , exception_reason: Joi.string().trim().min(10).max(2000).allow(null, '').optional()
 });
@@ -63,4 +66,10 @@ export const checkEligibilitySchema = Joi.object({
 export const updateLoanStatusSchema = Joi.object({
   workflow_status: Joi.string().valid('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED').required(),
   reason: Joi.string().min(3).when('workflow_status', { is: 'REJECTED', then: Joi.required(), otherwise: Joi.optional() })
+});
+
+export const closeLoanSchema = Joi.object({
+  insurance_claim_made: Joi.boolean().required(),
+  reason: Joi.string().trim().max(2000).when('insurance_claim_made', { is: true, then: Joi.string().min(10).required(), otherwise: Joi.string().allow(null, '').optional() }),
+  idempotency_key: Joi.string().trim().min(8).max(150).required()
 });

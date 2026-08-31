@@ -13,8 +13,10 @@ import {
   handleCalculateInstallment,
   handleAddGuarantor,
   handleAddCollateral,
-  handleUpdateLoanStatus
-  , handleGetApprovalStatus, handleInsuranceQuote
+  handleUpdateLoanStatus,
+  handleGetApprovalStatus,
+  handleInsuranceQuote,
+  handleCloseLoan
 } from './loan.controller.js';
 
 const router = Router();
@@ -31,7 +33,14 @@ router.post(
   handlePreCheckEligibility
 );
 // Create loan
-router.post('/', authenticate, requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER'), handleCreateLoan);
+router.post(
+  '/',
+  authenticate,
+  requireRoles('ADMIN', 'CREDIT_OFFICER', 'MANAGER'),
+  attachUploadContext('loan-fees', (req) => req.user.userId),
+  upload.single('fee_receipt'),
+  handleCreateLoan
+);
 router.post(
   '/:id/check-eligibility',
   authenticate,
@@ -50,6 +59,7 @@ router.post(
   requireRoles('ADMIN', 'MANAGER', 'BOARD_MEMBER'),
   handleApproveLoan
 );
+router.post('/:id/closure', authenticate, requireRoles('ADMIN', 'MANAGER'), handleCloseLoan);
 router.put(
   '/:id/status',
   authenticate,

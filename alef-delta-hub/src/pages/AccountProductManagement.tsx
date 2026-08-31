@@ -45,6 +45,7 @@ type AccountProductPayload = {
   min_balance: number;
   min_deposit: number;
   interest_rate: number;
+  interest_method: 'STANDARD' | 'PROFIT_SHARING';
   withdrawal_policy?: string | null;
   notes?: string | null;
 };
@@ -68,6 +69,7 @@ type ProductFormState = {
   min_balance: string;
   min_deposit: string;
   interest_rate: string;
+  interest_method: 'STANDARD' | 'PROFIT_SHARING';
   withdrawal_policy: string;
   notes: string;
 };
@@ -87,6 +89,7 @@ const INITIAL_FORM_STATE: ProductFormState = {
   min_balance: "0",
   min_deposit: "0",
   interest_rate: "0",
+  interest_method: "STANDARD",
   withdrawal_policy: "",
   notes: ""
 };
@@ -118,6 +121,7 @@ const mapProductToForm = (product: AccountProduct): ProductFormState => ({
     min_balance: product.min_balance?.toString() ?? "0",
     min_deposit: product.min_deposit?.toString() ?? "0",
     interest_rate: product.interest_rate?.toString() ?? "0",
+    interest_method: product.interest_method || "STANDARD",
     withdrawal_policy: product.withdrawal_policy || "",
     notes: product.notes || ""
   });
@@ -135,7 +139,8 @@ const buildPayload = (form: ProductFormState) => ({
     default_commodity_type: form.commodity_required ? form.default_commodity_type || null : null,
     min_balance: parseNumberOrZero(form.min_balance),
     min_deposit: parseNumberOrZero(form.min_deposit),
-    interest_rate: parseNumberOrZero(form.interest_rate),
+    interest_rate: form.interest_method === 'PROFIT_SHARING' ? 0 : parseNumberOrZero(form.interest_rate),
+    interest_method: form.interest_method,
     withdrawal_policy: form.withdrawal_policy || null,
     notes: form.notes || null
 });
@@ -245,6 +250,10 @@ const AccountProductManagement = () => {
     }
 
     const payload = buildPayload(form);
+    if (form.interest_method === 'STANDARD' && payload.interest_rate <= 0) {
+      toast({ title: "Invalid interest", description: "Regular Interest requires a percentage greater than zero.", variant: "destructive" });
+      return;
+    }
     if (dialogMode === "create") {
       createMutation.mutate({
         product_code: form.product_code.toUpperCase().replace(/\s+/g, "_"),
@@ -281,6 +290,9 @@ const AccountProductManagement = () => {
     <div className="flex flex-wrap gap-2 mt-2">
       <Badge variant="outline">{product.product_kind}</Badge>
       <Badge variant="outline">{(product.financial_category || 'OTHER').replaceAll('_', ' ')}</Badge>
+      <Badge variant={product.interest_method === 'PROFIT_SHARING' ? 'secondary' : 'outline'}>
+        {product.interest_method === 'PROFIT_SHARING' ? 'Dividend (Profit Share)' : 'Regular Interest'}
+      </Badge>
       {product.guardian_required && <Badge variant="secondary">Guardian Required</Badge>}
       {product.commodity_required && <Badge variant="secondary">In-Kind</Badge>}
       {product.target_required && <Badge variant="secondary">Target Savings</Badge>}
@@ -355,7 +367,7 @@ const AccountProductManagement = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <span className="font-medium text-foreground block">Interest Rate</span>
-                      {product.interest_rate}% 
+                      {product.interest_method === 'PROFIT_SHARING' ? 'Periodic profit distribution' : `${product.interest_rate}%`}
                     </div>
                     {product.default_commodity_type && (
                       <div>
@@ -455,7 +467,7 @@ const AccountProductManagement = () => {
               </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-4 gap-4">
               <div className="flex items-center justify-between border rounded-md px-3 py-2">
                 <div>
                   <Label className="text-sm">Target Savings</Label>
@@ -528,13 +540,25 @@ const AccountProductManagement = () => {
                 />
               </div>
               <div>
+                <Label>Interest Type *</Label>
+                <Select value={form.interest_method} onValueChange={(value) => setForm((prev) => ({ ...prev, interest_method: value as ProductFormState['interest_method'], interest_rate: value === 'PROFIT_SHARING' ? '0' : prev.interest_rate }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="STANDARD">Regular Interest</SelectItem>
+                    <SelectItem value="PROFIT_SHARING">Dividend (Profit Share)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
                 <Label>Interest Rate (%)</Label>
                 <Input
                   type="number"
                   step="0.1"
                   value={form.interest_rate}
                   onChange={(e) => setForm({ ...form, interest_rate: e.target.value })}
+                  disabled={form.interest_method === 'PROFIT_SHARING'}
                 />
+                {form.interest_method === 'PROFIT_SHARING' && <p className="mt-1 text-xs text-muted-foreground">Monthly interest is skipped. Growth comes only from approved profit distributions.</p>}
               </div>
             </div>
 

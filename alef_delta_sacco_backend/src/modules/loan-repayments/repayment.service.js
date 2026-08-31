@@ -24,6 +24,7 @@ import { toPublicUrl } from '../../core/utils/fileStorage.js';
 import { sendPenaltyNotification } from '../../core/utils/sms.js';
 import { findMemberById } from '../members/member.repository.js';
 import { updateMemberActivity } from '../members/member-lifecycle-processor.js';
+import { postMasterEntry } from '../profit-distributions/master-ledger.js';
 
 /**
  * Process a loan repayment
@@ -158,6 +159,37 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
     };
     
     await createRepayment(repayment, connection);
+
+    if (allocation.interestPaid > 0) {
+      await postMasterEntry(connection, {
+        entryDate: repayment.payment_date,
+        direction: 'INFLOW',
+        entryType: 'LOAN_INTEREST',
+        amount: allocation.interestPaid,
+        affectsProfit: true,
+        sourceType: 'LOAN_REPAYMENT',
+        sourceId: repaymentId,
+        sourceComponent: 'INTEREST',
+        performedBy: actor.userId,
+        description: `Interest collected for loan ${loanId}`,
+        idempotencyKey: `LOAN_INTEREST:${repaymentId}`
+      });
+    }
+    if (allocation.penaltyPaid > 0) {
+      await postMasterEntry(connection, {
+        entryDate: repayment.payment_date,
+        direction: 'INFLOW',
+        entryType: 'LOAN_PENALTY',
+        amount: allocation.penaltyPaid,
+        affectsProfit: true,
+        sourceType: 'LOAN_REPAYMENT',
+        sourceId: repaymentId,
+        sourceComponent: 'PENALTY',
+        performedBy: actor.userId,
+        description: `Penalty collected for loan ${loanId}`,
+        idempotencyKey: `LOAN_PENALTY:${repaymentId}`
+      });
+    }
     
     // Update loan balance fields (ensure all numbers are properly converted)
     const newTotalPaid = roundMoney(Number(lockedLoan.total_paid || 0) + paymentAmount);
@@ -186,7 +218,8 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
         amount: payload.amount,
         balance_after: balanceAfter,
         allocation
-      }
+      },
+      connection
     });
     
     // Update member activity (loan payment counts as activity)
@@ -204,6 +237,8 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
       balance_before: Number(outstandingBalance),
       balance_after: Number(balanceAfter),
       is_fully_paid: isFullyPaid,
+      closure_required: isFullyPaid,
+      closure_message: isFullyPaid ? 'Loan is fully repaid. An Admin or Manager must complete the insurance closure checklist.' : null,
       next_payment_date: newNextPaymentDate
     };
   });

@@ -15,6 +15,7 @@ export const createAccountProductSchema = Joi.object({
   min_balance: Joi.number().min(0).default(0),
   min_deposit: Joi.number().min(0).default(0),
   interest_rate: Joi.number().min(0).max(100).default(0),
+  interest_method: Joi.string().valid('STANDARD', 'PROFIT_SHARING').default('STANDARD'),
   withdrawal_policy: Joi.string().allow(null, ''),
   metadata_schema: Joi.string().allow(null, ''),
   notes: Joi.string().allow(null, '')
@@ -34,6 +35,7 @@ export const updateAccountProductSchema = Joi.object({
   min_balance: Joi.number().min(0),
   min_deposit: Joi.number().min(0),
   interest_rate: Joi.number().min(0).max(100),
+  interest_method: Joi.string().valid('STANDARD', 'PROFIT_SHARING'),
   withdrawal_policy: Joi.string().allow(null, ''),
   metadata_schema: Joi.string().allow(null, ''),
   notes: Joi.string().allow(null, '')

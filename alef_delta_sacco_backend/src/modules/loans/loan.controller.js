@@ -1,5 +1,6 @@
 import httpError from '../../core/utils/httpError.js';
 import { quoteLoanInsurance } from './insurance.js';
+import { toPublicUrl } from '../../core/utils/fileStorage.js';
 import {
   createLoan,
   checkLoanEligibility,
@@ -12,8 +13,9 @@ import {
   addLoanGuarantor,
   addLoanCollateral,
   getLoans,
-  updateLoanStatus
-  , getLoanApprovalStatus
+  updateLoanStatus,
+  getLoanApprovalStatus,
+  closeLoan
 } from './loan.service.js';
 import {
   createLoanSchema,
@@ -22,7 +24,8 @@ import {
   guarantorSchema,
   collateralSchema,
   checkEligibilitySchema,
-  updateLoanStatusSchema
+  updateLoanStatusSchema,
+  closeLoanSchema
 } from './loan.validators.js';
 
 function validate(schema, payload) {
@@ -64,9 +67,21 @@ export async function handleGetLoan(req, res, next) {
 
 export async function handleCreateLoan(req, res, next) {
   try {
-    const payload = validate(createLoanSchema, req.body);
+    const payload = validate(createLoanSchema, {
+      ...req.body,
+      fee_receipt_url: req.file ? toPublicUrl(req.file.path) : req.body.fee_receipt_url
+    });
     const loan = await createLoan(payload, req.user);
     res.status(201).json(loan);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function handleCloseLoan(req, res, next) {
+  try {
+    const payload = validate(closeLoanSchema, req.body);
+    res.json(await closeLoan(req.params.id, payload, req.user));
   } catch (error) {
     next(error);
   }

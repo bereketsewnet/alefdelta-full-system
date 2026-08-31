@@ -24,6 +24,7 @@ import memberRegistrationRequestRoutes from '../modules/member-registration-requ
 import partnerRequestRoutes from '../modules/partner-requests/partner-request.routes.js';
 import loanRequestRoutes from '../modules/loan-requests/loan-request.routes.js';
 import uploadRoutes from '../modules/uploads/upload.routes.js';
+import profitDistributionRoutes from '../modules/profit-distributions/profit-distribution.routes.js';
 import { healthCheck } from '../core/db.js';
 
 const router = Router();
@@ -42,6 +43,7 @@ router.use('/transactions', transactionRoutes);
 router.use('/loans', loanRoutes);
 router.use('/loan-products', loanProductRoutes);
 router.use('/account-products', accountProductRoutes);
+router.use('/profit-distributions', profitDistributionRoutes);
 router.use('/collateral', collateralRoutes);
 router.use('/guarantors', guarantorRoutes);
 router.use('/beneficiaries', beneficiaryRoutes);
@@ -75,4 +77,3 @@ router.use('/loan-requests', loanRequestRoutes);
 router.use('/uploads', uploadRoutes);
 
 export default router;
-

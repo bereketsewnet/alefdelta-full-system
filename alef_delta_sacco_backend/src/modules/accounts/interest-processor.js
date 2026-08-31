@@ -8,6 +8,8 @@ import { v4 as uuid } from 'uuid';
 import { query, execute, withTransaction } from '../../core/db.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
 import logger from '../../core/logger.js';
+import { postMasterEntry } from '../profit-distributions/master-ledger.js';
+import { addisAbabaDate } from '../profit-distributions/money.js';
 
 /**
  * Calculate monthly interest for an account
@@ -62,6 +64,7 @@ export async function processMonthlyInterest() {
   console.log('💰 Processing Monthly Interest for Savings Accounts...\n');
   
   const today = dayjs();
+  const businessDate = addisAbabaDate();
   const lastMonth = today.subtract(1, 'month').format('YYYY-MM');
   const firstOfMonth = today.startOf('month');
   
@@ -78,6 +81,8 @@ export async function processMonthlyInterest() {
     JOIN account_products ap ON a.product_code = ap.product_code
     JOIN members m ON a.member_id = m.member_id
     WHERE a.status = 'ACTIVE'
+    AND ap.is_active = 1
+    AND ap.interest_method = 'STANDARD'
     AND ap.interest_rate > 0
     AND (a.last_interest_date IS NULL OR a.last_interest_date < ?)
   `, [firstOfMonth.format('YYYY-MM-DD')]);
@@ -123,7 +128,7 @@ export async function processMonthlyInterest() {
           postingId,
           account.account_id,
           account.member_id,
-          today.format('YYYY-MM-DD'),
+          businessDate,
           interestCalc.interest_amount,
           interestCalc.method,
           interestCalc.balance_used,
@@ -149,7 +154,7 @@ export async function processMonthlyInterest() {
         `, [
           newBalance,
           interestCalc.interest_amount,
-          today.format('YYYY-MM-DD'),
+          businessDate,
           newBalance, // New month starts with current balance
           newBalance, // Reset minimum to current balance
           account.account_id
@@ -167,6 +172,20 @@ export async function processMonthlyInterest() {
           newBalance,
           `Interest ${lastMonth} (${interestCalc.method})`
         ]);
+
+        await postMasterEntry(connection, {
+          entryDate: businessDate,
+          direction: 'OUTFLOW',
+          entryType: 'SAVINGS_INTEREST',
+          amount: interestCalc.interest_amount,
+          affectsProfit: true,
+          sourceType: 'INTEREST_POSTING',
+          sourceId: postingId,
+          sourceComponent: 'SAVINGS_INTEREST',
+          performedBy: null,
+          description: `Monthly regular savings interest for ${lastMonth}`,
+          idempotencyKey: `SAVINGS_INTEREST:${postingId}`
+        });
         
         // Audit log
         await insertAuditLog({
@@ -180,7 +199,8 @@ export async function processMonthlyInterest() {
             balance_used: interestCalc.balance_used,
             rate: account.interest_rate,
             month: lastMonth
-          }
+          },
+          connection
         });
       });
       
@@ -308,5 +328,3 @@ export async function getInterestHistory(accountId, limit = 12) {
     LIMIT ?
   `, [accountId, limit]);
 }
-
-

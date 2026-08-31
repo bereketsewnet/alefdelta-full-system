@@ -34,6 +34,7 @@ import AccountManagement from "./pages/AccountManagement";
 import CollateralManagement from "./pages/CollateralManagement";
 import GuarantorManagement from "./pages/GuarantorManagement";
 import Transactions from "./pages/Transactions";
+import ProfitDistributions from "./pages/ProfitDistributions";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
@@ -66,6 +67,7 @@ const App = () => (
           <Route path="/admin/users" element={<UserManagement />} />
           <Route path="/admin/members" element={<AdminMemberManagement />} />
           <Route path="/admin/account-products" element={<AccountProductManagement />} />
+          <Route path="/admin/profit-distributions" element={<ProfitDistributions />} />
           <Route path="/admin/eod" element={<EndOfDay />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/manager/approvals" element={<ManagerApprovals />} />

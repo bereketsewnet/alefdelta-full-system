@@ -20,8 +20,10 @@ export async function createLoanApplication(record, connection) {
   await executor.execute(
     `INSERT INTO loan_applications
     (loan_id, member_id, product_code, selected_tier_id, applied_amount, approved_amount, term_months, interest_rate,
-    interest_type, penalty_rate, penalty_mode, penalty_fixed_amount, penalty_grace_days, penalty_escalation_enabled, penalty_escalation_value, service_charge_mode, service_charge_rate, service_charge_fixed_amount, service_charge_amount, borrower_age, insurance_enabled, insurance_ceiling_rate, insurance_rate, insurance_premium, insurance_renewal_date, purpose_description, repayment_frequency, workflow_status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    interest_type, penalty_rate, penalty_mode, penalty_fixed_amount, penalty_grace_days, penalty_escalation_enabled, penalty_escalation_value, service_charge_mode, service_charge_rate, service_charge_fixed_amount, service_charge_amount, borrower_age, insurance_enabled, insurance_ceiling_rate, insurance_rate, insurance_premium, insurance_renewal_date,
+    fee_payment_method, fee_receipt_number, fee_receipt_url, gross_disbursement_amount, total_upfront_fee_amount, net_disbursement_amount, fee_collection_status, insurance_escrow_status,
+    purpose_description, repayment_frequency, workflow_status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       record.loan_id,
       record.member_id,
@@ -35,6 +37,8 @@ export async function createLoanApplication(record, connection) {
       record.penalty_rate, record.penalty_mode, record.penalty_fixed_amount, record.penalty_grace_days, record.penalty_escalation_enabled ? 1 : 0, record.penalty_escalation_value,
       record.service_charge_mode, record.service_charge_rate, record.service_charge_fixed_amount, record.service_charge_amount,
       record.borrower_age, record.insurance_enabled ? 1 : 0, record.insurance_ceiling_rate, record.insurance_rate, record.insurance_premium, record.insurance_renewal_date,
+      record.fee_payment_method, record.fee_receipt_number, record.fee_receipt_url, record.gross_disbursement_amount,
+      record.total_upfront_fee_amount, record.net_disbursement_amount, record.fee_collection_status, record.insurance_escrow_status,
       record.purpose_description,
       record.repayment_frequency,
       record.workflow_status

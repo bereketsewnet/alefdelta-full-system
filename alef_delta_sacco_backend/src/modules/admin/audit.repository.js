@@ -7,13 +7,17 @@ export async function insertAuditLog({
   entityId,
   oldValue = null,
   newValue = null,
-  metadata = null
+  metadata = null,
+  connection = null
 }) {
-  await execute(
+  const sql =
     `INSERT INTO audit_logs
     (user_id, action, entity, entity_id, old_value, new_value, metadata, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [userId, action, entity, entityId, JSON.stringify(oldValue), JSON.stringify(newValue), JSON.stringify(metadata)]
-  );
+    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`;
+  const params = [userId, action, entity, entityId, JSON.stringify(oldValue), JSON.stringify(newValue), JSON.stringify(metadata)];
+  if (connection) {
+    await connection.execute(sql, params);
+    return;
+  }
+  await execute(sql, params);
 }
-
