@@ -117,8 +117,8 @@ const AdminMemberManagement = () => {
       toast({ title: "Error", description: "Please enter a new password", variant: "destructive" });
       return;
     }
-    if (resetPassword.length < 6) {
-      toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
+    if (resetPassword.length < 8) {
+      toast({ title: "Error", description: "Password must be at least 8 characters", variant: "destructive" });
       return;
     }
     resetPasswordMutation.mutate({ memberId: selectedMember.member_id, newPassword: resetPassword });
@@ -325,7 +325,7 @@ const AdminMemberManagement = () => {
                   type="password"
                   value={resetPassword}
                   onChange={(e) => setResetPassword(e.target.value)}
-                  placeholder="Enter new password (min 6 characters)"
+                  placeholder="Enter new password (min 8 characters)"
                   required
                 />
               </div>
@@ -337,7 +337,7 @@ const AdminMemberManagement = () => {
               <Button
                 type="button"
                 onClick={confirmResetPassword}
-                disabled={resetPasswordMutation.isPending || !resetPassword || resetPassword.length < 6}
+                disabled={resetPasswordMutation.isPending || !resetPassword || resetPassword.length < 8}
               >
                 {resetPasswordMutation.isPending ? 'Resetting...' : 'Reset Password'}
               </Button>
@@ -350,4 +350,3 @@ const AdminMemberManagement = () => {
 };
 
 export default AdminMemberManagement;
-

@@ -25,7 +25,6 @@ function validate(schema, payload) {
 
 export async function handleLogin(req, res, next) {
   try {
-    console.log('Login attempt:', { ...req.body, password: '***' });
     const payload = validate(loginSchema, req.body);
     const result = await login(payload);
     res.json(result);

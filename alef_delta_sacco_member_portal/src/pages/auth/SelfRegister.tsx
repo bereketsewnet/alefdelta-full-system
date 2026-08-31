@@ -163,7 +163,7 @@ export default function SelfRegister() {
     member_type: z.enum(["GOV_EMP", "TRADER", "NGO", "FARMER", "SELF"]),
     monthly_income: z.string().min(1, t('validation.required')),
     tin_number: z.string().optional(),
-    password: z.string().min(6, t('validation.password_min_length')),
+    password: z.string().min(8, t('validation.password_min_length')),
   });
 
   const form = useForm<RegistrationFormData>({
@@ -1736,4 +1736,3 @@ export default function SelfRegister() {
     </div>
   );
 }
-

@@ -17,7 +17,7 @@ import { api } from '@/lib/api';
 
 const loginSchema = z.object({
   phone: z.string().min(10, 'Please enter a valid phone number'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
   remember: z.boolean().optional(),
 });
 
@@ -192,7 +192,7 @@ export default function Login() {
           {/* Info Note */}
           <div className="p-3 bg-muted/50 rounded-lg">
             <p className="text-xs text-muted-foreground text-center">
-              Use your registered phone number and password (min. 6 characters)
+              Use your registered phone number and password (min. 8 characters)
             </p>
           </div>
 

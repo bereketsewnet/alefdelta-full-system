@@ -46,7 +46,7 @@ export default function Transactions() {
   const transactions = data?.pages.flatMap(page => page.data) || [];
 
   const handleExport = () => {
-    // Mock CSV export
+    // Export the transactions returned by the authenticated API.
     const csv = transactions.map(t => 
       `${t.transaction_id},${t.type},${t.amount},${t.balance_after},${t.created_at}`
     ).join('\n');

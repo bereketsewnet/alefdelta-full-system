@@ -1,11 +1,9 @@
 // KPI Header Component with animated statistics
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, Wallet, CreditCard, Calendar, ArrowRight } from 'lucide-react';
-import { Area, AreaChart, ResponsiveContainer } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { KPISummary } from '@/types';
-import { mockSavingsHistory } from '@/lib/api';
 
 interface KPIHeaderProps {
   data: KPISummary;
@@ -42,7 +40,6 @@ export function KPIHeader({ data, isLoading }: KPIHeaderProps) {
       icon: Wallet,
       trend: data.savings_change_percent,
       color: 'primary',
-      sparkline: true,
     },
     {
       label: t('dashboard.loan_outstanding'),
@@ -96,25 +93,6 @@ export function KPIHeader({ data, isLoading }: KPIHeaderProps) {
                 <span className="text-primary-foreground/70">this month</span>
               </div>
             )}
-          </div>
-          <div className="h-16 w-24">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockSavingsHistory}>
-                <defs>
-                  <linearGradient id="savingsGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="rgba(255,255,255,0.3)" />
-                    <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-                  </linearGradient>
-                </defs>
-                <Area
-                  type="monotone"
-                  dataKey="amount"
-                  stroke="rgba(255,255,255,0.8)"
-                  strokeWidth={2}
-                  fill="url(#savingsGradient)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
           </div>
         </div>
         

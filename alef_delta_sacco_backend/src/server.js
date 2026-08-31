@@ -8,6 +8,9 @@ import { startAllScheduledJobs } from './modules/system/scheduler.js';
 async function start() {
   await healthCheck();
   const server = http.createServer(app);
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 35_000;
+  server.keepAliveTimeout = 5_000;
   server.listen(config.port, () => {
     logger.info(`ALEF-DELTA SACCO API listening on port ${config.port}`);
     
@@ -20,4 +23,3 @@ start().catch((error) => {
   logger.error('Failed to start server', { error });
   process.exit(1);
 });
-

@@ -13,7 +13,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm ci && npm cache clean --force
 
 # Copy source code
 COPY . .
@@ -23,6 +23,8 @@ RUN npm run build
 
 # Production stage
 FROM nginx:alpine
+
+ENV NGINX_ENTRYPOINT_QUIET_LOGS=1
 
 # Copy built assets from build stage
 COPY --from=build /app/dist /usr/share/nginx/html
@@ -35,4 +37,3 @@ EXPOSE 80
 
 # Start nginx
 CMD ["nginx", "-g", "daemon off;"]
-

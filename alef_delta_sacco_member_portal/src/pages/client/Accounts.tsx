@@ -9,7 +9,7 @@ import { AccountCard } from '@/components/AccountCard';
 import { DepositRequestForm } from '@/components/DepositRequestForm';
 import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
-import { api, mockTransactions } from '@/lib/api';
+import { api } from '@/lib/api';
 
 export default function Accounts() {
   const { t } = useTranslation();
@@ -78,7 +78,7 @@ export default function Accounts() {
               <AccountCard
                 key={account.id}
                 account={account}
-                recentTransactions={mockTransactions.filter(t => t.account_id === account.id).slice(0, 2)}
+                recentTransactions={[]}
                 index={i}
               />
             ))}

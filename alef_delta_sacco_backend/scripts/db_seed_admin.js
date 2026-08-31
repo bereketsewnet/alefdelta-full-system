@@ -3,11 +3,9 @@ import path from 'node:path';
 import mysql from 'mysql2/promise';
 import { v4 as uuid } from 'uuid';
 import config from '../src/core/config.js';
-import { hashPassword, generateRandomPassword } from '../src/core/utils/password.js';
+import { hashPassword } from '../src/core/utils/password.js';
 
 const templatePath = path.resolve(process.cwd(), 'seeds/seed_admin.sql');
-const credentialsPath = path.resolve(process.cwd(), 'scripts/admin_credentials.txt');
-
 function splitStatements(sql) {
   return sql
     .split(/;\s*(?:\r?\n|$)/)
@@ -36,14 +34,18 @@ async function seedAdmin() {
   await ensureDatabase();
   
   const template = await fs.readFile(templatePath, 'utf8');
-  const plainPassword = generateRandomPassword(20);
+  const plainPassword = process.env.ADMIN_PASSWORD;
+  const username = process.env.ADMIN_USERNAME || 'admin';
+  const email = process.env.ADMIN_EMAIL;
+  const phone = process.env.ADMIN_PHONE || '+251900000000';
+  if (!plainPassword || plainPassword.length < 8) {
+    throw new Error('ADMIN_PASSWORD with at least 8 characters is required');
+  }
+  if (!email) throw new Error('ADMIN_EMAIL is required');
   const passwordHash = await hashPassword(plainPassword);
   const userId = uuid();
-  const username = `admin_${Date.now()}`;
-  const email = `${username}@sacco.local`;
-  const phone = '+251900000000';
-  
-  console.log(`📝 Generated username: ${username}`);
+
+  console.log(`📝 Creating production Admin: ${username}`);
   
   const sql = template
     .replace('{{USER_ID}}', userId)
@@ -73,15 +75,7 @@ async function seedAdmin() {
     await connection.end();
   }
   
-  await fs.writeFile(
-    credentialsPath,
-    `Username: ${username}\nPassword: ${plainPassword}\nGenerated: ${new Date().toISOString()}\n`,
-    { mode: 0o600 }
-  );
-  console.log(`✅ Admin credentials saved to ${credentialsPath}`);
-  console.log(`\n🔑 Admin Login Credentials:`);
-  console.log(`   Username: ${username}`);
-  console.log(`   Password: ${plainPassword}`);
+  console.log('✅ Admin credentials were hashed; plaintext credentials were not written to disk');
 }
 
 // Always execute when script is run
@@ -95,4 +89,3 @@ seedAdmin()
     console.error(error.stack);
     process.exit(1);
   });
-

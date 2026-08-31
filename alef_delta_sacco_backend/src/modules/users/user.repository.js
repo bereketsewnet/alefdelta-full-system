@@ -24,16 +24,16 @@ export async function findUserByEmail(email) {
 }
 
 export async function findUserByIdentifier(identifier) {
-  // Find user by username or email (case-insensitive)
   if (!identifier) return null;
   const normalized = identifier.trim();
-  
-  // Check if it looks like an email (contains @)
-  if (normalized.includes('@')) {
-    return await findUserByEmail(normalized);
-  } else {
-    return await findUserByUsername(normalized);
-  }
+  const rows = await query(
+    `SELECT * FROM users
+     WHERE LOWER(TRIM(username)) = LOWER(?)
+        OR LOWER(TRIM(email)) = LOWER(?)
+     LIMIT 1`,
+    [normalized, normalized]
+  );
+  return rows[0];
 }
 
 export async function findUserById(userId) {
@@ -130,4 +130,3 @@ export async function deleteUser(userId) {
   await execute('DELETE FROM users WHERE user_id = ?', [userId]);
   return true;
 }
-

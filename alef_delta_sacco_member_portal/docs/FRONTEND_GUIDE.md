@@ -66,7 +66,7 @@ src/
 │   └── use-toast.ts     # Toast notifications hook
 │
 ├── lib/                 # Utilities and configurations
-│   ├── api.ts          # API client & mock data
+│   ├── api.ts          # Production API client
 │   ├── deeplink.ts     # Telegram deep link utilities
 │   ├── i18n.ts         # i18n configuration
 │   └── utils.ts        # General utilities (cn, etc.)

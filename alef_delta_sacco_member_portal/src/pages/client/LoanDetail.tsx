@@ -11,7 +11,7 @@ import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { api, mockLoanSchedule } from '@/lib/api';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const formatCurrency = (amount: number) => {
@@ -41,7 +41,7 @@ export default function LoanDetail() {
   });
 
   const loan = data;
-  const schedule = data?.schedule || mockLoanSchedule;
+  const schedule = data?.schedule || [];
 
   if (isLoading || !loan) {
     return (

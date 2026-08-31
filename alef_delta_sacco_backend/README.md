@@ -27,11 +27,10 @@ backend/
    ```bash
    cp .env.example .env
    ```
-3. Run database migrations and seed data:
+3. Run database migrations and explicitly seed the administrator:
    ```bash
    npm run migrate
-   npm run db:seedall
-   npm run seed:admin   # generates admin credentials -> scripts/admin_credentials.txt
+   ADMIN_EMAIL='admin@example.com' ADMIN_PASSWORD='use-a-strong-password' npm run seed:admin
    ```
 4. Start the API server:
    ```bash
@@ -54,8 +53,7 @@ backend/
 | `npm test` | Execute Jest unit + integration tests |
 | `npm run migrate` | Run ordered SQL migrations in `migrations/` |
 | `npm run db:reset` | Drop every table, then re-run migrations |
-| `npm run db:seedall` | Apply the sample seed dataset |
-| `npm run seed:admin` | Create a fresh admin user + credentials file |
+| `npm run seed:admin` | Create or update the explicitly configured administrator |
 
 Scripts rely on the same `.env` configuration used by the runtime server.
 
@@ -63,9 +61,7 @@ Scripts rely on the same `.env` configuration used by the runtime server.
 
 - Uses `mysql2/promise` with pooled connections. All money-moving operations execute inside an explicit transaction with optimistic locking `version` field on accounts.
 - Migration runner executes raw SQL files in lexical order.
-- Seed files:
-  - `seed_admin.sql` is parameterised; the `seed:admin` script injects secure credentials and writes them to `scripts/admin_credentials.txt` (chmod 600).
-  - `seed_all.sql` seeds example members, accounts, loan products, and staff users.
+- `seed_admin.sql` is parameterised. The seed command requires credentials from environment variables and never writes or logs the password.
 
 ## Key features
 

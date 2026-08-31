@@ -19,8 +19,6 @@ export async function runEndOfDay(req, res, next) {
     const userId = req.user.userId;
     const jobId = await systemService.startJob('EOD', userId);
     
-    // Run async to not block response, or await if client waits
-    // For now, we await to verify completion in this demo
     await systemService.processEndOfDay(jobId);
     
     res.json({ message: 'EOD process completed successfully', jobId });

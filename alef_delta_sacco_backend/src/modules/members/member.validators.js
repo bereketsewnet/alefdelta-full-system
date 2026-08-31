@@ -29,7 +29,7 @@ export const createMemberSchema = Joi.object({
   monthly_income: Joi.number().min(0).required(),
   tin_number: Joi.string().allow(null, ''),
   status: Joi.string().valid('PENDING', 'ACTIVE', 'SUSPENDED', 'CLOSED').default('PENDING'),
-  password: Joi.string().min(6).required(), // Changed from 8 to 6 to match frontend
+  password: Joi.string().min(8).required(),
   // ID card URLs (separate from documents)
   id_card_front_url: Joi.string().allow(null, '').optional(),
   id_card_back_url: Joi.string().allow(null, '').optional()
@@ -39,7 +39,7 @@ export const updateMemberSchema = createMemberSchema.fork(
   Object.keys(createMemberSchema.describe().keys),
   (schema) => schema.optional()
 ).keys({
-  password: Joi.string().min(6).optional().allow(null, '') // Allow password update but make it optional
+  password: Joi.string().min(8).optional().allow(null, '')
 });
 
 export const beneficiarySchema = Joi.object({
@@ -59,6 +59,5 @@ export const emergencyContactSchema = Joi.object({
 });
 
 export const resetMemberPasswordSchema = Joi.object({
-  new_password: Joi.string().min(6).required()
+  new_password: Joi.string().min(8).required()
 });
-

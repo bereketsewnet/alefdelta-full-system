@@ -10,13 +10,9 @@ done
 
 echo "MySQL is up - executing migrations..."
 
-# Run migrations
-npm run migrate || echo "Migrations failed or already applied"
-
-# Run seed data (optional - comment out if you don't want to seed on every start)
-# npm run db:seedall || echo "Seeding failed or already applied"
+# Never start the financial API against a partially migrated schema.
+npm run migrate
 
 # Start the application
 echo "Starting API server..."
 exec npm start
-

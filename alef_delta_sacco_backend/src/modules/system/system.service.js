@@ -35,20 +35,22 @@ export async function failJob(jobId, errorMessage) {
   );
 }
 
-// Simulate EOD Processing
 export async function processEndOfDay(jobId) {
   try {
-    // 1. Interest Accrual (Mock calculation for now)
-    const [accounts] = await query('SELECT COUNT(*) as count, SUM(balance) as total FROM accounts WHERE status = "ACTIVE"');
-    const interestAccrued = Number(accounts.total) * 0.0001; // Mock 0.01% daily rate
-
-    // 2. Lock Transactions (Mock)
-    
-    // 3. Update Job
+    // EOD records a real reconciliation snapshot only. Interest, penalties and
+    // lifecycle changes are handled by their dedicated, idempotent processors.
+    const [accounts] = await query('SELECT COUNT(*) as count FROM accounts WHERE status = "ACTIVE"');
+    const [transactions] = await query(
+      'SELECT COUNT(*) as count FROM transactions WHERE DATE(created_at) = CURDATE()'
+    );
+    const stats = await getDailyEodStats();
     await completeJob(jobId, {
       processed_accounts: accounts.count,
-      interest_accrued: interestAccrued,
-      steps_completed: ['Interest Accrual', 'Fee Processing', 'Account Status', 'Reconciliation', 'Lock Transactions']
+      processed_transactions: transactions.count,
+      total_deposits: stats.total_deposits,
+      total_withdrawals: stats.total_withdrawals,
+      net_change: stats.net_change,
+      steps_completed: ['Daily Transaction Reconciliation']
     });
   } catch (error) {
     await failJob(jobId, error.message);

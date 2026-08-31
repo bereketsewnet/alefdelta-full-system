@@ -26,18 +26,15 @@ export async function login({ actor = 'STAFF', identifier, password }) {
   if (normalizedActor === 'STAFF') {
     // Support login by username or email
     const user = await findUserByIdentifier(identifier);
-    if (!user) {
-      console.log(`Login failed: User not found for identifier '${identifier}'`);
+    if (!user || user.status !== 'ACTIVE') {
       throw httpError(401, 'Invalid credentials');
     }
     // Check if user is active
     if (user.status !== 'ACTIVE') {
-      console.log(`Login failed: User '${identifier}' is not ACTIVE (status: ${user.status})`);
       throw httpError(403, 'Account is disabled');
     }
     const match = await comparePassword(password, user.password_hash);
     if (!match) {
-      console.log(`Login failed: Password mismatch for user '${identifier}'`);
       throw httpError(401, 'Invalid credentials');
     }
     const payload = { sub: user.user_id, role: user.role, subjectType: 'STAFF' };
@@ -55,7 +52,7 @@ export async function login({ actor = 'STAFF', identifier, password }) {
 
 
   const member = await findMemberByPhone(identifier);
-  if (!member) {
+  if (!member || member.status !== 'ACTIVE') {
     throw httpError(401, 'Invalid credentials');
   }
   // Check if member is active - PENDING members cannot login
@@ -222,4 +219,3 @@ export async function getCurrentUser({ userId, role, subjectType }) {
     role: 'MEMBER' // Explicit role for frontend logic
   };
 }
-

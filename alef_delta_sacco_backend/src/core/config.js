@@ -4,10 +4,17 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const rootDir = path.resolve(process.cwd());
+const environment = process.env.NODE_ENV || 'development';
+
+if (environment === 'production') {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 24) throw new Error('JWT_SECRET must contain at least 24 characters in production');
+  if (!process.env.REFRESH_TOKEN_SECRET || process.env.REFRESH_TOKEN_SECRET.length < 24) throw new Error('REFRESH_TOKEN_SECRET must contain at least 24 characters in production');
+  if (!process.env.DB_PASSWORD || process.env.DB_PASSWORD.length < 12) throw new Error('DB_PASSWORD must contain at least 12 characters in production');
+}
 
 const config = {
-  env: process.env.NODE_ENV || 'development',
-  isProd: (process.env.NODE_ENV || 'development') === 'production',
+  env: environment,
+  isProd: environment === 'production',
   port: process.env.PORT || 4000,
   db: {
     host: process.env.DB_HOST || '127.0.0.1',
@@ -47,7 +54,12 @@ const config = {
   },
   rateLimit: {
     windowMs: Number(process.env.RATE_LIMIT_WINDOW || 15 * 60 * 1000),
-    max: Number(process.env.RATE_LIMIT_MAX || 20)
+    max: Number(process.env.RATE_LIMIT_MAX || 20),
+    apiMax: Number(process.env.API_RATE_LIMIT_MAX || 600)
+  },
+  cors: {
+    origins: (process.env.CORS_ORIGINS || 'https://corebank.alefdelta.com,https://sacco-mp.alefdelta.com,https://sacco-registration.alefdelta.com')
+      .split(',').map((origin) => origin.trim()).filter(Boolean)
   },
   smtp: {
     host: process.env.SMTP_HOST,
@@ -62,4 +74,3 @@ const config = {
 };
 
 export default config;
-

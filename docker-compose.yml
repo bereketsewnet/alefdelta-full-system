@@ -4,11 +4,14 @@ services:
     image: mysql:8.0
     container_name: alefdelta_mysql
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword123}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-alef_delta_sacco}
-      MYSQL_USER: ${MYSQL_USER:-alefdelta_admin}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-~HNiBgmo56wag~y3}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MYSQL_DATABASE: ${DB_NAME:-alef_delta_sacco}
+      MYSQL_USER: ${DB_USER:-alefdelta_admin}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     expose:
       - "3306"
     volumes:
@@ -16,11 +19,17 @@ services:
     networks:
       - alefdelta_network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword123}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
       interval: 10s
       timeout: 5s
-      retries: 5
-    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+      retries: 10
+      start_period: 30s
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --log-bin-trust-function-creators=1
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Adminer - Database GUI
   # adminer:
@@ -44,6 +53,9 @@ services:
       dockerfile: Dockerfile
     container_name: alefdelta_api
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
     expose:
       - "4000"
     env_file:
@@ -55,6 +67,11 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Entrypoint script handles migrations
 
   # Frontend UI (Staff Portal)
@@ -66,6 +83,9 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://sacco-api.alefdelta.com/api}
     container_name: alefdelta_frontend
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
     expose:
       - "80"
     env_file:
@@ -74,6 +94,11 @@ services:
       - alefdelta_network
     depends_on:
       - api
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Member Portal (Telegram Mini App UI)
   member_portal:
@@ -84,12 +109,20 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://sacco-api.alefdelta.com/api}
     container_name: alefdelta_member_portal
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
     expose:
       - "80"
     networks:
       - alefdelta_network
     depends_on:
       - api
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Optional standalone proxy. Production uses the VPS-wide alef_erp_caddy
   # container, which joins alefdelta_network and owns ports 80/443.

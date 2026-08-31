@@ -39,7 +39,7 @@ const memberSchema = z.object({
   member_type: z.enum(["GOV_EMP", "TRADER", "NGO", "FARMER", "SELF"]),
   monthly_income: z.string().min(1, "Monthly income is required"),
   tin_number: z.string().optional(),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   // Emergency contact fields
   emergency_contact_full_name: z.string().optional().or(z.literal("")),
   emergency_contact_subcity: z.string().optional().or(z.literal("")),
@@ -916,7 +916,7 @@ const NewMember = () => {
                               </Button>
                             </div>
                           </FormControl>
-                          <FormDescription>Min. 6 characters (must include uppercase, lowercase, and number)</FormDescription>
+                          <FormDescription>Min. 8 characters (must include uppercase, lowercase, and number)</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}

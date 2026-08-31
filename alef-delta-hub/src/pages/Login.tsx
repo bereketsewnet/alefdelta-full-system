@@ -6,16 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { Eye, EyeOff, LogIn, ShieldCheck } from "lucide-react";
-
-const demoAccounts = [
-  { label: "Admin", username: "admin" },
-  { label: "Teller", username: "teller" },
-  { label: "Credit Officer", username: "credit.officer" },
-  { label: "Manager", username: "manager" },
-  { label: "Board Member", username: "e2e_board1" },
-  { label: "Auditor", username: "e2e_auditor" },
-] as const;
+import { Eye, EyeOff, LogIn } from "lucide-react";
 
 const Login = () => {
   const [identifier, setIdentifier] = useState("");
@@ -28,11 +19,6 @@ const Login = () => {
   // Hide by default; can be enabled via env if needed (rebuild frontend after changing env).
   const showForgotPasswordLink =
     String(import.meta.env.VITE_SHOW_STAFF_FORGOT_PASSWORD || "").toLowerCase() === "true";
-
-  const selectDemoAccount = (username: string) => {
-    setIdentifier(username);
-    setPassword("Demo1234");
-  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,29 +212,6 @@ const Login = () => {
               </Button>
             </form>
 
-            <div className="mt-6 p-4 bg-muted/50 rounded-lg border shadow-sm">
-              <div className="mb-3 flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-xs font-semibold">Demo Accounts</p>
-                  <p className="text-[11px] text-muted-foreground">Click an account to fill the username and password.</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {demoAccounts.map((account) => (
-                  <button
-                    key={account.username}
-                    type="button"
-                    onClick={() => selectDemoAccount(account.username)}
-                    className="rounded-md border bg-background px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={`Use ${account.label} demo account`}
-                  >
-                    <span className="block text-xs font-medium">{account.label}</span>
-                    <span className="block truncate font-mono text-[11px] text-muted-foreground">{account.username}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
           </CardContent>
         </Card>
 

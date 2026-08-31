@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 
 const Reports = () => {
@@ -87,18 +86,22 @@ const Reports = () => {
     doc.save(`${title.toLowerCase().replace(/\s+/g, '_')}_${format(new Date(), "yyyyMMdd")}.pdf`);
   };
 
-  const exportToExcel = (data: any[], title: string) => {
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
-    const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    saveAs(blob, `${title.toLowerCase().replace(/\s+/g, '_')}_${format(new Date(), "yyyyMMdd")}.xlsx`);
-  };
-
   const exportToCSV = (data: any[], title: string) => {
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
+    if (data.length === 0) {
+      toast.error("No data available to export");
+      return;
+    }
+    const escapeCell = (value: unknown) => {
+      let text = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
+      // Prevent spreadsheet formula injection when the CSV is opened in Excel.
+      if (/^[=+\-@]/.test(text)) text = `'${text}`;
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+    const headers = Object.keys(data[0]);
+    const csvOutput = [
+      headers.map(escapeCell).join(','),
+      ...data.map((row) => headers.map((header) => escapeCell(row[header])).join(','))
+    ].join('\n');
     const blob = new Blob([csvOutput], { type: "text/csv;charset=utf-8" });
     saveAs(blob, `${title.toLowerCase().replace(/\s+/g, '_')}_${format(new Date(), "yyyyMMdd")}.csv`);
   };
@@ -148,22 +151,8 @@ const Reports = () => {
           break;
       }
 
-      // In a real app, we'd call the API. 
-      // For now, if the endpoint is not fully implemented in previous steps, we might get 404.
-      // I'll try-catch specific calls or mock data if API fails for demo purposes.
-      let data = [];
-      try {
-          const response = await api.get(endpoint, { params });
-          data = formatDataForExport(response.data);
-      } catch (err) {
-          console.warn("API call failed, using mock data for demo", err);
-          // Fallback mock data if API fails (for demo continuity)
-          data = [
-              { id: 1, date: "2024-03-01", description: "Deposit", amount: 5000, type: "Credit" },
-              { id: 2, date: "2024-03-02", description: "Withdrawal", amount: 2000, type: "Debit" },
-              { id: 3, date: "2024-03-03", description: "Loan Disbursal", amount: 15000, type: "Debit" },
-          ];
-      }
+      const response = await api.get(endpoint, { params });
+      const data = formatDataForExport(response.data);
 
       if (mode === 'preview') {
         setPreviewTitle(reportName);
@@ -171,7 +160,6 @@ const Reports = () => {
         setPreviewOpen(true);
       } else {
         if (formatType === 'pdf') exportToPDF(data, reportName);
-        else if (formatType === 'excel') exportToExcel(data, reportName);
         else if (formatType === 'csv') exportToCSV(data, reportName);
         
         toast.success(`${reportName} downloaded successfully`);
@@ -339,7 +327,6 @@ const Reports = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pdf">PDF</SelectItem>
-                  <SelectItem value="excel">Excel</SelectItem>
                   <SelectItem value="csv">CSV</SelectItem>
                 </SelectContent>
               </Select>

@@ -31,8 +31,6 @@ import PartnerApprovals from "./pages/PartnerApprovals";
 import LoanRequestApprovals from "./pages/LoanRequestApprovals";
 import MemberActivation from "./pages/MemberActivation";
 import AccountManagement from "./pages/AccountManagement";
-import CollateralManagement from "./pages/CollateralManagement";
-import GuarantorManagement from "./pages/GuarantorManagement";
 import Transactions from "./pages/Transactions";
 import ProfitDistributions from "./pages/ProfitDistributions";
 import Index from "./pages/Index";
@@ -78,8 +76,6 @@ const App = () => (
           <Route path="/manager/loan-request-approvals" element={<LoanRequestApprovals />} />
           <Route path="/manager/activation" element={<MemberActivation />} />
           <Route path="/manager/accounts" element={<AccountManagement />} />
-          <Route path="/collateral" element={<CollateralManagement />} />
-          <Route path="/guarantors" element={<GuarantorManagement />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

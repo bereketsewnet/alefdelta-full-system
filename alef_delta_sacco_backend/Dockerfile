@@ -1,6 +1,8 @@
 # Multi-stage build for Node.js API
 FROM node:20.18.1-alpine
 
+ENV NODE_ENV=production
+
 # Install netcat for MySQL connection check
 RUN apk add --no-cache netcat-openbsd
 
@@ -10,7 +12,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy source code
 COPY . .
@@ -31,4 +33,3 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
 
 # Use entrypoint script
 ENTRYPOINT ["./docker-entrypoint.sh"]
-

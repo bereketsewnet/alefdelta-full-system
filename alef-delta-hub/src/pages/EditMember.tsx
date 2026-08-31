@@ -40,7 +40,7 @@ const editMemberSchema = z.object({
   member_type: z.enum(["GOV_EMP", "TRADER", "NGO", "FARMER", "SELF"]),
   monthly_income: z.string().min(1, "Monthly income is required"),
   tin_number: z.string().optional(),
-  password: z.string().min(6, "Password must be at least 6 characters").optional().or(z.literal("")),
+  password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
 });
 
 type EditMemberFormData = z.infer<typeof editMemberSchema>;
@@ -655,7 +655,7 @@ const EditMember = () => {
                           <FormControl>
                             <Input type="password" placeholder="Leave blank to keep current password" {...field} />
                           </FormControl>
-                          <FormDescription>Min. 6 characters. Leave blank to keep current password.</FormDescription>
+                          <FormDescription>Min. 8 characters. Leave blank to keep current password.</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -687,4 +687,3 @@ const EditMember = () => {
 };
 
 export default EditMember;
-
