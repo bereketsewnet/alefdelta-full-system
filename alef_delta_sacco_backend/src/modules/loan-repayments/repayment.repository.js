@@ -2,15 +2,14 @@ import { query, execute } from '../../core/db.js';
 import httpError from '../../core/utils/httpError.js';
 
 export async function createRepayment(repayment, connection) {
-  const conn = connection || null;
-  await execute(
+  const sql =
     `INSERT INTO loan_repayments 
     (repayment_id, loan_id, member_id, payment_date, amount_paid, principal_paid, 
      interest_paid, penalty_paid, balance_before, balance_after, payment_method, 
      bank_receipt_no, bank_receipt_photo_url,
      receipt_no, receipt_photo_url, notes, performed_by, idempotency_key)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const params = [
       repayment.repayment_id,
       repayment.loan_id,
       repayment.member_id,
@@ -29,9 +28,9 @@ export async function createRepayment(repayment, connection) {
       repayment.notes,
       repayment.performed_by,
       repayment.idempotency_key
-    ],
-    conn
-  );
+    ];
+  if (connection) await connection.execute(sql, params);
+  else await execute(sql, params);
 }
 
 export async function listRepaymentsByLoan(loanId) {
@@ -72,6 +71,8 @@ export async function updateRepayment(repaymentId, updates, connection) {
   const sql = `UPDATE loan_repayments SET ${fields.join(', ')}, created_at = created_at WHERE repayment_id = ?`;
   if (connection) {
     await connection.execute(sql, values);
+    const [rows] = await connection.query('SELECT * FROM loan_repayments WHERE repayment_id = ?', [repaymentId]);
+    return rows[0] || null;
   } else {
     await execute(sql, values);
   }
@@ -151,4 +152,3 @@ export async function updateLoanBalanceFields(loanId, updates, connection) {
     await execute(sql, values);
   }
 }
-

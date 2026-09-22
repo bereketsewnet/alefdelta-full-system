@@ -96,7 +96,7 @@ export async function approveMemberRegistrationRequest(requestId, approverId, ap
   // Create the member using the existing createNewMember function
   let member;
   try {
-    member = await createNewMember(memberData);
+    member = await createNewMember(memberData, { userId: approverId, role: approverRole });
   } catch (error) {
     // Handle duplicate phone number error
     if (error.original?.code === 'ER_DUP_ENTRY' && error.original?.sqlMessage?.includes('phone_primary')) {
@@ -211,4 +211,3 @@ export async function rejectMemberRegistrationRequest(requestId, approverId, rej
 
   return findMemberRegistrationRequestById(requestId);
 }
-

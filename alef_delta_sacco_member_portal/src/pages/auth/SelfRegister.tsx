@@ -90,7 +90,7 @@ export default function SelfRegister() {
   const [familySizeMaleInput, setFamilySizeMaleInput] = useState<string>("0");
   const [workExperienceInput, setWorkExperienceInput] = useState<string>("");
   const [monthlyIncomeInput, setMonthlyIncomeInput] = useState<string>("");
-  const [sharesRequestedInput, setSharesRequestedInput] = useState<string>("0");
+  const [sharesRequestedInput, setSharesRequestedInput] = useState<string>("10");
   
   // Emergency contacts state
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
@@ -188,7 +188,7 @@ export default function SelfRegister() {
       address_area_name: "",
       address_house_no: "",
       national_id_number: "",
-      shares_requested: "0",
+      shares_requested: "10",
       terms_accepted: false,
       member_type: "GOV_EMP",
       monthly_income: "",

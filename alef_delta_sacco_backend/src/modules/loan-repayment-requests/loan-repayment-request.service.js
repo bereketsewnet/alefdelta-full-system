@@ -5,6 +5,12 @@ import { findMemberById } from '../members/member.repository.js';
 import { findLoanById } from '../loans/loan.repository.js';
 import { processLoanRepayment } from '../loan-repayments/repayment.service.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
+import {
+  claimFinancialReference,
+  cleanFinancialReference,
+  markFinancialReferencePosted,
+  markFinancialReferenceRetired
+} from '../financial-references/financial-reference.service.js';
 
 export async function createLoanRepaymentRequest(memberId, payload) {
   // Verify member exists
@@ -34,30 +40,34 @@ export async function createLoanRepaymentRequest(memberId, payload) {
     throw httpError(400, 'Amount must be greater than zero');
   }
 
-  // Create loan repayment request
-  const requestId = uuid();
-  await query(
-    `INSERT INTO loan_repayment_requests 
-    (request_id, member_id, loan_id, amount, payment_method, receipt_number, receipt_photo_url, notes, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
-    [
-      requestId,
-      memberId,
-      payload.loan_id,
-      amount,
-      payload.payment_method || 'CASH',
-      payload.receipt_number || null,
-      payload.receipt_photo_url || null,
-      payload.notes || null,
-    ]
-  );
+  const receiptNumber = cleanFinancialReference(payload.receipt_number);
+  if (!receiptNumber) throw httpError(400, 'Bank receipt number is required');
+  if (receiptNumber.length > 100) throw httpError(400, 'Bank receipt number must not exceed 100 characters');
 
-  await insertAuditLog({
-    userId: null,
-    action: 'LOAN_REPAYMENT_REQUEST_CREATED',
-    entity: 'loan_repayment_requests',
-    entityId: requestId,
-    metadata: { member_id: memberId, amount, loan_id: payload.loan_id },
+  const requestId = uuid();
+  await withTransaction(async (connection) => {
+    await claimFinancialReference({
+      reference: receiptNumber,
+      referenceKind: 'LOAN_REPAYMENT_REQUEST',
+      sourceId: requestId,
+      memberId,
+      status: 'RESERVED',
+      connection
+    });
+    await connection.execute(
+      `INSERT INTO loan_repayment_requests
+      (request_id, member_id, loan_id, amount, payment_method, receipt_number, receipt_photo_url, notes, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+      [requestId, memberId, payload.loan_id, amount, payload.payment_method || 'CASH', receiptNumber, payload.receipt_photo_url || null, payload.notes || null]
+    );
+    await insertAuditLog({
+      userId: null,
+      action: 'LOAN_REPAYMENT_REQUEST_CREATED',
+      entity: 'loan_repayment_requests',
+      entityId: requestId,
+      metadata: { member_id: memberId, amount, loan_id: payload.loan_id, receipt_number: receiptNumber },
+      connection
+    });
   });
 
   // Create notification (fire-and-forget for faster response)
@@ -149,8 +159,9 @@ export async function listAllLoanRepaymentRequests(filters = {}) {
 }
 
 export async function approveLoanRepaymentRequest(requestId, approverId) {
-  return withTransaction(async (connection) => {
-    const request = await findLoanRepaymentRequestById(requestId);
+  await withTransaction(async (connection) => {
+    const [rows] = await connection.query('SELECT * FROM loan_repayment_requests WHERE request_id = ? FOR UPDATE', [requestId]);
+    const request = rows[0];
     if (!request) {
       throw httpError(404, 'Loan repayment request not found');
     }
@@ -173,8 +184,17 @@ export async function approveLoanRepaymentRequest(requestId, approverId) {
         notes: request.notes,
       },
       null,
-      { userId: approverId, role: 'TELLER' }
+      { userId: approverId, role: 'TELLER' },
+      {
+        connection,
+        bankReferenceOwner: {
+          referenceKind: 'LOAN_REPAYMENT_REQUEST',
+          sourceId: requestId
+        }
+      }
     );
+
+    await markFinancialReferencePosted(request.receipt_number, 'LOAN_REPAYMENT_REQUEST', requestId, connection);
 
     // Update request status
     await connection.query(
@@ -184,33 +204,24 @@ export async function approveLoanRepaymentRequest(requestId, approverId) {
       [approverId, requestId]
     );
 
-    // Audit log (non-blocking for faster response)
-    insertAuditLog({
+    await insertAuditLog({
       userId: approverId,
       action: 'LOAN_REPAYMENT_REQUEST_APPROVED',
       entity: 'loan_repayment_requests',
       entityId: requestId,
       metadata: { repayment_id: repayment.repayment_id },
-    }).catch(err => {
-      console.error('Failed to insert audit log for loan repayment request approval:', err);
+      connection
     });
-
-    const approvedRequest = await findLoanRepaymentRequestById(requestId);
-    
-    // Create notification (fire-and-forget for faster response)
-    if (approvedRequest.member_id) {
-      const { NotificationHelpers } = await import('../notifications/notification.service.js');
-      NotificationHelpers.loanRepaymentApproved(
-        approvedRequest.member_id,
-        request.loan_id,
-        request.amount
-      ).catch(err => {
-        console.error('Failed to create loan repayment approval notification:', err);
-      });
-    }
-
-    return approvedRequest;
   });
+
+  const approvedRequest = await findLoanRepaymentRequestById(requestId);
+  if (approvedRequest?.member_id) {
+    const { NotificationHelpers } = await import('../notifications/notification.service.js');
+    NotificationHelpers.loanRepaymentApproved(approvedRequest.member_id, approvedRequest.loan_id, approvedRequest.amount).catch(err => {
+      console.error('Failed to create loan repayment approval notification:', err);
+    });
+  }
+  return approvedRequest;
 }
 
 export async function rejectLoanRepaymentRequest(requestId, approverId, reason) {
@@ -222,19 +233,22 @@ export async function rejectLoanRepaymentRequest(requestId, approverId, reason) 
     throw httpError(400, `Request is already ${request.status}`);
   }
 
-  await query(
-    `UPDATE loan_repayment_requests 
-    SET status = 'REJECTED', approved_by = ?, approved_at = NOW(), rejection_reason = ?
-    WHERE request_id = ?`,
-    [approverId, reason || null, requestId]
-  );
-
-  await insertAuditLog({
-    userId: approverId,
-    action: 'LOAN_REPAYMENT_REQUEST_REJECTED',
-    entity: 'loan_repayment_requests',
-    entityId: requestId,
-    metadata: { reason },
+  await withTransaction(async (connection) => {
+    await connection.execute(
+      `UPDATE loan_repayment_requests
+      SET status = 'REJECTED', approved_by = ?, approved_at = NOW(), rejection_reason = ?
+      WHERE request_id = ? AND status = 'PENDING'`,
+      [approverId, reason || null, requestId]
+    );
+    await markFinancialReferenceRetired(request.receipt_number, 'LOAN_REPAYMENT_REQUEST', requestId, connection);
+    await insertAuditLog({
+      userId: approverId,
+      action: 'LOAN_REPAYMENT_REQUEST_REJECTED',
+      entity: 'loan_repayment_requests',
+      entityId: requestId,
+      metadata: { reason },
+      connection
+    });
   });
 
   const rejectedRequest = await findLoanRepaymentRequestById(requestId);
@@ -253,5 +267,3 @@ export async function rejectLoanRepaymentRequest(requestId, approverId, reason) 
 
   return rejectedRequest;
 }
-
-

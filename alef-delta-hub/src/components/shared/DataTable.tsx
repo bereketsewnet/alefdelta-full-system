@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface Column<T> {
   key: string;
@@ -36,6 +36,13 @@ export function DataTable<T extends { [key: string]: any }>({
   const [currentPage, setCurrentPage] = useState(1);
 
   const totalPages = Math.ceil(data.length / pageSize);
+
+  // A search/filter replaces the data set. Always return to its first page so
+  // an old page number cannot make valid search results appear empty.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [data]);
+
   const startIndex = (currentPage - 1) * pageSize;
   const endIndex = startIndex + pageSize;
   const currentData = data.slice(startIndex, endIndex);

@@ -52,7 +52,7 @@ export async function handleGetMember(req, res, next) {
 export async function handleCreateMember(req, res, next) {
   try {
     const payload = validate(createMemberSchema, req.body);
-    const member = await createNewMember(payload);
+    const member = await createNewMember(payload, req.user);
     res.status(201).json(member);
   } catch (error) {
     next(error);
@@ -162,4 +162,3 @@ export async function handleGetInactiveReport(req, res, next) {
     next(error);
   }
 }
-

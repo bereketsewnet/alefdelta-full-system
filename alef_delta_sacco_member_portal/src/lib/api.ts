@@ -10,7 +10,7 @@ import type {
     KPISummary,
     AuthResponse,
   } from '@/types';
-  
+
   // Get API base URL from environment variable
   const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://sacco-api.alefdelta.com/api';
   
@@ -197,6 +197,14 @@ import type {
     },
     
     client: {
+      /**
+       * Check that a financial reference/receipt number has never been used.
+       * The server repeats this validation atomically when the request is saved.
+       */
+      checkFinancialReference: async (reference: string): Promise<{ reference: string; available: boolean; message: string }> => {
+        return apiFetch(`/financial-references/check?reference=${encodeURIComponent(reference.trim())}`);
+      },
+
       /**
        * Get current member profile
        * GET /api/client/me
@@ -518,16 +526,14 @@ import type {
       createDepositRequest: async (payload: {
         account_id: string;
         amount: number;
-        reference_number?: string;
+        reference_number: string;
         description?: string;
         receipt?: File;
       }): Promise<any> => {
         const formData = new FormData();
         formData.append('account_id', payload.account_id);
         formData.append('amount', payload.amount.toString());
-        if (payload.reference_number) {
-          formData.append('reference_number', payload.reference_number);
-        }
+        formData.append('reference_number', payload.reference_number.trim());
         if (payload.description) {
           formData.append('description', payload.description);
         }
@@ -852,6 +858,5 @@ import type {
       },
     },
   };
-  
+
   export default api;
-  

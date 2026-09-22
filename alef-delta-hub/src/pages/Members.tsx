@@ -33,7 +33,9 @@ const Members = () => {
     queryFn: async () => {
       const params = new URLSearchParams();
       if (debouncedSearch) params.append('search', debouncedSearch);
-      params.append('limit', '100'); // Simplified pagination for now
+      // Load the complete member directory for the shared client-side table.
+      // The previous 100-row cap made teller results and entry counts incomplete.
+      params.append('limit', '1000');
       
       const res = await api.get<{ data: Member[], total: number }>(`/members?${params.toString()}`);
       return res.data;

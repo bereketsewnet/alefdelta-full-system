@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 const depositRequestSchema = z.object({
   account_id: z.string().min(1, 'Please select an account'),
   amount: z.number().min(1, 'Amount must be greater than 0'),
-  reference_number: z.string().optional(),
+  reference_number: z.string().trim().min(1, 'Reference / Receipt No. is required').max(100, 'Reference must not exceed 100 characters'),
   description: z.string().min(10, 'Description must be at least 10 characters'),
   receipt: z.instanceof(File).optional(),
 });
@@ -39,6 +39,7 @@ export function DepositRequestForm({
 }: DepositRequestFormProps) {
   const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingReference, setIsCheckingReference] = useState(false);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   
   // Fetch accounts for dropdown
@@ -54,6 +55,8 @@ export function DepositRequestForm({
     reset,
     watch,
     setValue,
+    setError,
+    clearErrors,
     formState: { errors },
   } = useForm<DepositRequestFormData>({
     resolver: zodResolver(depositRequestSchema),
@@ -66,6 +69,32 @@ export function DepositRequestForm({
   });
 
   const receiptFile = watch('receipt');
+
+  const checkReferenceAvailability = async (reference: string) => {
+    const cleanedReference = reference.trim();
+    if (!cleanedReference) {
+      setError('reference_number', { type: 'required', message: 'Reference / Receipt No. is required' });
+      return false;
+    }
+    setIsCheckingReference(true);
+    try {
+      const result = await api.client.checkFinancialReference(cleanedReference);
+      if (!result.available) {
+        setError('reference_number', { type: 'validate', message: result.message });
+        return false;
+      }
+      clearErrors('reference_number');
+      return true;
+    } catch (error) {
+      setError('reference_number', {
+        type: 'validate',
+        message: error instanceof Error ? error.message : 'Unable to validate this reference number',
+      });
+      return false;
+    } finally {
+      setIsCheckingReference(false);
+    }
+  };
 
   // Handle receipt file change
   const handleReceiptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,12 +111,13 @@ export function DepositRequestForm({
   };
 
   const onSubmit = async (data: DepositRequestFormData) => {
+    if (!(await checkReferenceAvailability(data.reference_number))) return;
     setIsSubmitting(true);
     try {
       await api.client.createDepositRequest({
         account_id: data.account_id,
         amount: data.amount,
-        reference_number: data.reference_number || undefined,
+        reference_number: data.reference_number.trim(),
         description: data.description,
         receipt: data.receipt,
       });
@@ -199,21 +229,30 @@ export function DepositRequestForm({
                   
                   {/* Reference Number */}
                   <div className="space-y-2">
-                    <Label htmlFor="reference_number">Reference Number</Label>
+                    <Label htmlFor="reference_number">Bank Receipt No. *</Label>
                     <Input
                       id="reference_number"
                       type="text"
-                      placeholder="e.g., Transaction ID, Receipt Number"
-                      {...register('reference_number')}
+                      placeholder="e.g., Bank Transaction ID or Receipt Number"
+                      {...register('reference_number', {
+                        onChange: () => clearErrors('reference_number'),
+                        onBlur: (event) => void checkReferenceAvailability(event.target.value),
+                      })}
                     />
+                    {isCheckingReference && (
+                      <p className="text-xs text-muted-foreground">Checking reference number...</p>
+                    )}
+                    {errors.reference_number && (
+                      <p className="text-sm text-destructive">{errors.reference_number.message}</p>
+                    )}
                     <p className="text-xs text-muted-foreground">
-                      Optional: Enter the transaction reference or receipt number from your payment
+                      Required and must be unique across deposits, withdrawals, and loan repayments.
                     </p>
                   </div>
                   
                   {/* Receipt Upload */}
                   <div className="space-y-2">
-                    <Label htmlFor="receipt">Deposit Receipt/Screenshot</Label>
+                    <Label htmlFor="receipt">Bank Receipt Photo/Screenshot</Label>
                     <div className="space-y-2">
                       <label
                         htmlFor="receipt"
@@ -298,13 +337,13 @@ export function DepositRequestForm({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isCheckingReference}
                   className="flex-1 bg-primary hover:bg-primary-hover"
                 >
-                  {isSubmitting ? (
+                  {(isSubmitting || isCheckingReference) ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Submitting...
+                      {isCheckingReference ? 'Checking...' : 'Submitting...'}
                     </>
                   ) : (
                     t('submit')
@@ -321,4 +360,3 @@ export function DepositRequestForm({
 }
 
 export default DepositRequestForm;
-

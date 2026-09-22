@@ -1,6 +1,13 @@
 import httpError from '../../core/utils/httpError.js';
 import { toPublicUrl } from '../../core/utils/fileStorage.js';
-import { deposit, withdraw, getTransactions, getMemberTransactions, updateTransactionReceiptPhoto } from './transaction.service.js';
+import {
+  deposit,
+  withdraw,
+  getTransactions,
+  getMemberTransactions,
+  updateTransactionReceiptPhoto,
+  updateTransactionBankReceiptPhoto
+} from './transaction.service.js';
 import { moneyMovementSchema, transactionQuerySchema } from './transaction.validators.js';
 
 function validate(schema, payload) {
@@ -11,31 +18,51 @@ function validate(schema, payload) {
   return value;
 }
 
+function getUploadedFile(req, ...fieldNames) {
+  for (const fieldName of fieldNames) {
+    const file = req.files?.[fieldName]?.[0];
+    if (file) return file;
+  }
+  return null;
+}
+
+function buildMoneyMovementBody(req) {
+  const body = req.body || {};
+  return {
+    account_id: body.account_id,
+    amount: typeof body.amount === 'string' ? Number(body.amount) : body.amount,
+    reference: body.reference || '',
+    bank_receipt_no: body.bank_receipt_no || undefined,
+    remark: body.remark || undefined
+  };
+}
+
+function getReceiptProof(req) {
+  const companyReceiptFile = getUploadedFile(req, 'company_receipt', 'receipt');
+  const bankReceiptFile = getUploadedFile(req, 'bank_receipt');
+  return {
+    receiptPhotoUrl: companyReceiptFile ? toPublicUrl(companyReceiptFile.path) : null,
+    bankReceiptPhotoUrl: bankReceiptFile ? toPublicUrl(bankReceiptFile.path) : null
+  };
+}
+
 export async function handleDeposit(req, res, next) {
   try {
-    // Handle FormData (multipart) or JSON
-    let body = req.body;
-    if (req.is('multipart/form-data')) {
-      // For FormData, convert string numbers to numbers
-      body = {
-        account_id: body.account_id,
-        amount: body.amount ? (typeof body.amount === 'string' ? parseFloat(body.amount) : body.amount) : undefined,
-        reference: body.reference || ''
-      };
-    }
-    
-    const payload = validate(moneyMovementSchema, body);
+    const payload = validate(moneyMovementSchema, buildMoneyMovementBody(req));
     
     if (!payload.account_id) {
       throw httpError(400, 'account_id is required');
     }
     
-    const receiptPhotoUrl = req.file ? toPublicUrl(req.file.path) : null;
+    const { receiptPhotoUrl, bankReceiptPhotoUrl } = getReceiptProof(req);
     const txn = await deposit({
       accountId: payload.account_id,
       amount: payload.amount,
       reference: payload.reference || '',
       receiptPhotoUrl,
+      bankReceiptNo: payload.bank_receipt_no,
+      bankReceiptPhotoUrl,
+      remark: payload.remark,
       performedBy: req.user?.userId || 'SYSTEM',
       idempotencyKey: req.idempotency?.key
     });
@@ -52,29 +79,21 @@ export async function handleDeposit(req, res, next) {
 
 export async function handleWithdraw(req, res, next) {
   try {
-    // Handle FormData (multipart) or JSON
-    let body = req.body;
-    if (req.is('multipart/form-data')) {
-      // For FormData, convert string numbers to numbers
-      body = {
-        account_id: body.account_id,
-        amount: body.amount ? (typeof body.amount === 'string' ? parseFloat(body.amount) : body.amount) : undefined,
-        reference: body.reference || ''
-      };
-    }
-    
-    const payload = validate(moneyMovementSchema, body);
+    const payload = validate(moneyMovementSchema, buildMoneyMovementBody(req));
     
     if (!payload.account_id) {
       throw httpError(400, 'account_id is required');
     }
     
-    const receiptPhotoUrl = req.file ? toPublicUrl(req.file.path) : null;
+    const { receiptPhotoUrl, bankReceiptPhotoUrl } = getReceiptProof(req);
     const txn = await withdraw({
       accountId: payload.account_id,
       amount: payload.amount,
       reference: payload.reference || '',
       receiptPhotoUrl,
+      bankReceiptNo: payload.bank_receipt_no,
+      bankReceiptPhotoUrl,
+      remark: payload.remark,
       performedBy: req.user?.userId || 'SYSTEM',
       idempotencyKey: req.idempotency?.key
     });
@@ -152,3 +171,20 @@ export async function handleUpdateTransactionReceipt(req, res, next) {
   }
 }
 
+export async function handleUpdateTransactionBankReceipt(req, res, next) {
+  try {
+    const { txnId } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'Bank receipt photo is required' });
+    }
+
+    const bankReceiptPhotoUrl = toPublicUrl(req.file.path);
+    const transaction = await updateTransactionBankReceiptPhoto(txnId, bankReceiptPhotoUrl);
+
+    res.json({ data: transaction });
+  } catch (error) {
+    console.error('Error in handleUpdateTransactionBankReceipt:', error);
+    next(error);
+  }
+}

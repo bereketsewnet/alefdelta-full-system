@@ -327,7 +327,7 @@ const SystemSettings = () => {
                       type="number"
                       step="1"
                       min="0"
-                      value={configs['min_shares_required'] || '5'}
+                      value={configs['min_shares_required'] || '10'}
                       onChange={(e) => handleInputChange('min_shares_required', e.target.value)}
                     />
                     <Button
@@ -339,7 +339,7 @@ const SystemSettings = () => {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Default: 5 shares
+                    Default: 10 shares
                   </p>
                 </div>
               </CardContent>

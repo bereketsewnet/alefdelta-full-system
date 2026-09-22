@@ -21,6 +21,11 @@ import { formatCurrency } from "@/lib/utils/financial";
 import { useToast } from "@/hooks/use-toast";
 import { useAccountProducts } from "@/hooks/use-account-products";
 import { ModernHeader } from "@/components/shared/ModernHeader";
+import {
+  DEFAULT_SAVINGS_PRODUCT_CODES,
+  isSimpleSavingsProduct,
+  SavingsAccountSelector,
+} from "@/components/members/SavingsAccountSelector";
 
 // Helper function to get full image URL
 // Images are served at /uploads (not /api/uploads), so we need to remove /api from base URL
@@ -107,6 +112,9 @@ const MemberDetail = () => {
   
   // Account management state
 const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+const [savingsAccountDialogOpen, setSavingsAccountDialogOpen] = useState(false);
+const [selectedSavingsProductCodes, setSelectedSavingsProductCodes] = useState<string[]>([]);
+const [creatingSavingsAccounts, setCreatingSavingsAccounts] = useState(false);
 const [editingAccount, setEditingAccount] = useState<Account | null>(null);
 const [accountForm, setAccountForm] = useState({
   product_code: '' as Account['product_code'],
@@ -130,6 +138,10 @@ const [accountForm, setAccountForm] = useState({
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const receiptFileRef = useRef<HTMLInputElement>(null);
+  const [bankReceiptFile, setBankReceiptFile] = useState<File | null>(null);
+  const [bankReceiptPreview, setBankReceiptPreview] = useState<string | null>(null);
+  const [uploadingBankReceipt, setUploadingBankReceipt] = useState(false);
+  const bankReceiptFileRef = useRef<HTMLInputElement>(null);
   
   // Transaction filters
   const [txnTypeFilter, setTxnTypeFilter] = useState<string>('ALL');
@@ -255,8 +267,14 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
   const totalBalance = memberAccounts.reduce((sum, acc) => sum + Number(acc.balance), 0);
   const totalLien = memberAccounts.reduce((sum, acc) => sum + Number(acc.lien_amount), 0);
 
-  const sharePrice = Number(systemConfigMap.share_price ?? 300);
-  const minSharesRequired = Number(systemConfigMap.min_shares_required ?? 5);
+  const configuredSharePrice = Number(systemConfigMap.share_price ?? 300);
+  const configuredMinShares = Number(systemConfigMap.min_shares_required ?? 10);
+  const configuredRegistrationFee = Number(systemConfigMap.registration_fee_etb ?? 1000);
+  const sharePrice = Number.isFinite(configuredSharePrice) ? configuredSharePrice : 300;
+  const minSharesRequired = Number.isFinite(configuredMinShares) ? configuredMinShares : 10;
+  const registrationFee = Number.isFinite(configuredRegistrationFee) ? configuredRegistrationFee : 1000;
+  const registrationShareAmount = sharePrice * minSharesRequired;
+  const registrationPaymentTotal = registrationFee + registrationShareAmount;
   const requestedShares = Number(member?.shares_requested ?? 0);
   // Use per-member shares if set (>0). Only fall back to default minimum when member shares are 0/unset.
   const effectiveShares = (requestedShares && requestedShares > 0) ? requestedShares : (minSharesRequired || 0);
@@ -316,7 +334,7 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
       const formData = new FormData();
       formData.append('receipt', receiptFile);
 
-      await api.put(`/transactions/${selectedTransaction.txn_id}/receipt`, formData, {
+      const response = await api.put<{ data: TransactionRow }>(`/transactions/${selectedTransaction.txn_id}/receipt`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
@@ -326,13 +344,8 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
       });
 
       // Refresh transactions
-      queryClient.invalidateQueries({ queryKey: ['member-transactions', id] });
-      
-      // Update selected transaction
-      setSelectedTransaction({
-        ...selectedTransaction,
-        receipt_photo_url: selectedTransaction.receipt_photo_url // Will be updated by refetch
-      });
+      await queryClient.invalidateQueries({ queryKey: ['member-transactions', id] });
+      setSelectedTransaction({ ...selectedTransaction, receipt_photo_url: response.data.data.receipt_photo_url });
 
       // Reset file state
       setReceiptFile(null);
@@ -349,11 +362,56 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
     }
   };
 
-  const handleOpenTransactionDialog = (transaction: Transaction) => {
+  const handleBankReceiptFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBankReceiptFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setBankReceiptPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleUploadBankReceipt = async () => {
+    if (!selectedTransaction || !bankReceiptFile) return;
+
+    try {
+      setUploadingBankReceipt(true);
+      const formData = new FormData();
+      formData.append('bank_receipt', bankReceiptFile);
+      const response = await api.put<{ data: TransactionRow }>(
+        `/transactions/${selectedTransaction.txn_id}/bank-receipt`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+
+      toast({ title: "Success", description: "Bank receipt photo updated successfully" });
+      await queryClient.invalidateQueries({ queryKey: ['member-transactions', id] });
+      setSelectedTransaction({
+        ...selectedTransaction,
+        bank_receipt_photo_url: response.data.data.bank_receipt_photo_url
+      });
+      setBankReceiptFile(null);
+      setBankReceiptPreview(null);
+      if (bankReceiptFileRef.current) bankReceiptFileRef.current.value = '';
+    } catch (error: unknown) {
+      toast({
+        title: "Error",
+        description: getApiErrorMessage(error) || "Failed to upload bank receipt photo",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingBankReceipt(false);
+    }
+  };
+
+  const handleOpenTransactionDialog = (transaction: TransactionRow) => {
     setSelectedTransaction(transaction);
     setReceiptFile(null);
     setReceiptPreview(null);
+    setBankReceiptFile(null);
+    setBankReceiptPreview(null);
     if (receiptFileRef.current) receiptFileRef.current.value = '';
+    if (bankReceiptFileRef.current) bankReceiptFileRef.current.value = '';
     setTransactionDialogOpen(true);
   };
 
@@ -429,6 +487,43 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
     setAccountDialogOpen(true);
   };
 
+  const openSavingsAccountDialog = () => {
+    const existingCodes = new Set(memberAccounts.filter((account) => account.status !== 'CLOSED').map((account) => account.product_code));
+    const missingDefaults = DEFAULT_SAVINGS_PRODUCT_CODES.filter((code) =>
+      !existingCodes.has(code) && accountProducts.some((product) => product.product_code === code && isSimpleSavingsProduct(product))
+    );
+    setSelectedSavingsProductCodes(missingDefaults);
+    setSavingsAccountDialogOpen(true);
+  };
+
+  const handleCreateSavingsAccounts = async () => {
+    if (!id) return;
+    try {
+      setCreatingSavingsAccounts(true);
+      const response = await api.post<{ created: { product_code: string }[]; existing: string[] }>(
+        `/accounts/member/${id}/ensure-savings`,
+        { product_codes: selectedSavingsProductCodes }
+      );
+      const createdCount = response.data.created.length;
+      toast({
+        title: createdCount > 0 ? "Savings Accounts Created" : "No New Accounts Needed",
+        description: createdCount > 0
+          ? `${createdCount} savings account${createdCount === 1 ? '' : 's'} created successfully.`
+          : "The selected savings accounts already exist or no products were selected.",
+      });
+      await queryClient.invalidateQueries({ queryKey: ['member-accounts', id] });
+      setSavingsAccountDialogOpen(false);
+    } catch (error: unknown) {
+      toast({
+        title: "Unable to Create Savings Accounts",
+        description: getApiErrorMessage(error) || "Failed to create the selected savings accounts",
+        variant: "destructive",
+      });
+    } finally {
+      setCreatingSavingsAccounts(false);
+    }
+  };
+
   const openEditAccount = (account: Account) => {
     setEditingAccount(account);
     const metadata = (account.metadata ?? undefined) as AccountMetadata | undefined;
@@ -447,7 +542,7 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
       estimated_value: inKind.estimated_value?.toString?.() || '',
       target_amount: micro.target_amount?.toString?.() || '',
       target_date: micro.target_date || '',
-      additional_notes: metadata.notes || ''
+      additional_notes: metadata?.notes || ''
     });
     setAccountDialogOpen(true);
   };
@@ -646,6 +741,10 @@ type TransactionRow = Transaction & {
   product_code?: string | null;
   performed_by_username?: string | null;
   receipt_photo_url?: string | null;
+  bank_receipt_no?: string | null;
+  bank_receipt_photo_url?: string | null;
+  remark?: string | null;
+  source_type?: 'TRANSACTION' | 'LOAN_REPAYMENT';
 };
 
 const getTargetSavingsWarning = (account: AccountWithMetadata) => {
@@ -1318,10 +1417,15 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                     </CardDescription>
                       </div>
                       {['TELLER', 'MANAGER', 'ADMIN'].includes(user?.role || '') && (
-                        <Button onClick={openAddAccount}>
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add Account
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" onClick={openSavingsAccountDialog}>
+                            Default Savings Accounts
+                          </Button>
+                          <Button onClick={openAddAccount}>
+                            <Plus className="mr-2 h-4 w-4" />
+                            Add Account
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </CardHeader>
@@ -1427,7 +1531,7 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
 
               {/* Transaction Details Dialog */}
               <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Transaction Details</DialogTitle>
                     <DialogDescription>
@@ -1461,8 +1565,12 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                           <p className="font-semibold">{formatCurrency(selectedTransaction.balance_after)}</p>
                         </div>
                         <div>
-                          <Label className="text-muted-foreground">Reference</Label>
+                          <Label className="text-muted-foreground">SACCO / Company Receipt No.</Label>
                           <p className="text-sm">{selectedTransaction.reference || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <Label className="text-muted-foreground">Bank Receipt No.</Label>
+                          <p className="text-sm">{selectedTransaction.bank_receipt_no || 'N/A'}</p>
                         </div>
                         <div>
                           <Label className="text-muted-foreground">Date & Time</Label>
@@ -1483,15 +1591,21 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                           </div>
                         )}
                       </div>
+                      {selectedTransaction.remark && (
+                        <div className="rounded-lg border bg-muted/30 p-3">
+                          <Label className="text-muted-foreground">Reason / Remark</Label>
+                          <p className="mt-1 whitespace-pre-wrap text-sm">{selectedTransaction.remark}</p>
+                        </div>
+                      )}
                       <div>
-                        <Label className="text-muted-foreground">Receipt Photo</Label>
+                        <Label className="text-muted-foreground">SACCO / Company Receipt Photo</Label>
                         <div className="mt-2 space-y-3">
                           {/* Image Preview - Fixed rectangular size */}
                           {(receiptPreview || selectedTransaction.receipt_photo_url) && (
                             <div className="relative w-full h-64 border rounded-lg overflow-hidden bg-muted/50 flex items-center justify-center">
                               <img
                                 src={receiptPreview || getImageUrl(selectedTransaction.receipt_photo_url) || ''}
-                                alt="Receipt"
+                                alt="SACCO / company receipt"
                                 className="w-full h-full object-contain"
                                 onError={(e) => {
                                   (e.target as HTMLImageElement).style.display = 'none';
@@ -1500,8 +1614,8 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                             </div>
                           )}
                           
-                          {/* Upload/Update Button */}
-                          <div className="flex items-center gap-2">
+                          {/* Upload/update is supported for normal account transactions. */}
+                          {selectedTransaction.source_type !== 'LOAN_REPAYMENT' && <div className="flex items-center gap-2">
                             <input
                               ref={receiptFileRef}
                               type="file"
@@ -1517,7 +1631,7 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                               disabled={uploadingReceipt}
                             >
                               <Upload className="h-4 w-4 mr-2" />
-                              {selectedTransaction.receipt_photo_url ? 'Update Receipt' : 'Upload Receipt'}
+                              {selectedTransaction.receipt_photo_url ? 'Update Company Receipt' : 'Upload Company Receipt'}
                             </Button>
                             {receiptFile && (
                               <Button
@@ -1544,7 +1658,70 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                                 <X className="h-4 w-4" />
                               </Button>
                             )}
-                          </div>
+                          </div>}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-muted-foreground">Bank Receipt Photo</Label>
+                        <div className="mt-2 space-y-3">
+                          {(bankReceiptPreview || selectedTransaction.bank_receipt_photo_url) ? (
+                            <div className="relative flex h-64 w-full items-center justify-center overflow-hidden rounded-lg border bg-muted/50">
+                              <img
+                                src={bankReceiptPreview || getImageUrl(selectedTransaction.bank_receipt_photo_url) || ''}
+                                alt="Bank receipt"
+                                className="h-full w-full object-contain"
+                                onError={(event) => { (event.target as HTMLImageElement).style.display = 'none'; }}
+                              />
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No bank receipt photo uploaded.</p>
+                          )}
+                          {selectedTransaction.source_type !== 'LOAN_REPAYMENT' && (
+                            <div className="flex items-center gap-2">
+                              <input
+                                ref={bankReceiptFileRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleBankReceiptFileChange}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => bankReceiptFileRef.current?.click()}
+                                disabled={uploadingBankReceipt}
+                              >
+                                <Upload className="h-4 w-4 mr-2" />
+                                {selectedTransaction.bank_receipt_photo_url ? 'Update Bank Receipt' : 'Upload Bank Receipt'}
+                              </Button>
+                              {bankReceiptFile && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={handleUploadBankReceipt}
+                                  disabled={uploadingBankReceipt}
+                                >
+                                  {uploadingBankReceipt ? 'Uploading...' : 'Save Bank Receipt'}
+                                </Button>
+                              )}
+                              {bankReceiptFile && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setBankReceiptFile(null);
+                                    setBankReceiptPreview(null);
+                                    if (bankReceiptFileRef.current) bankReceiptFileRef.current.value = '';
+                                  }}
+                                  disabled={uploadingBankReceipt}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2145,7 +2322,7 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                                     {registrationReceiptDocs.length > 0 ? `${registrationReceiptDocs.length} receipt(s) uploaded` : "No receipts uploaded"}
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    Total: 2,500 ETB (1,000 ETB registration + 1,500 ETB for 5 shares @ 300 ETB each)
+                                    Example total: {registrationPaymentTotal.toLocaleString()} ETB ({registrationFee.toLocaleString()} ETB registration + {registrationShareAmount.toLocaleString()} ETB for {minSharesRequired} shares @ {sharePrice.toLocaleString()} ETB each)
                                   </p>
                                 </div>
                               </div>
@@ -2625,6 +2802,31 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
       </Dialog>
 
       {/* Account Dialog */}
+      <Dialog open={savingsAccountDialogOpen} onOpenChange={setSavingsAccountDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Savings Accounts</DialogTitle>
+            <DialogDescription>
+              Default products are selected when missing. Existing accounts are preserved and cannot be duplicated.
+            </DialogDescription>
+          </DialogHeader>
+          <SavingsAccountSelector
+            products={accountProducts}
+            selectedCodes={selectedSavingsProductCodes}
+            onSelectedCodesChange={setSelectedSavingsProductCodes}
+            existingCodes={memberAccounts.filter((account) => account.status !== 'CLOSED').map((account) => account.product_code)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSavingsAccountDialogOpen(false)} disabled={creatingSavingsAccounts}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateSavingsAccounts} disabled={creatingSavingsAccounts || selectedSavingsProductCodes.length === 0}>
+              {creatingSavingsAccounts ? "Creating..." : "Create Selected Accounts"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
         <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden p-0 flex flex-col">
           <DialogHeader className="shrink-0 px-6 pt-6 pb-4">

@@ -10,7 +10,8 @@ import {
   handleCloseAccount,
   handleFreezeAccount,
   handleUnfreezeAccount,
-  handleDeleteAccount
+  handleDeleteAccount,
+  handleEnsureMemberSavingsAccounts
 } from './account.controller.js';
 
 const router = Router();
@@ -21,6 +22,13 @@ router.get('/', authenticate, requireRoles(...staffRoles), handleListAccounts);
 
 // Get accounts for a specific member
 router.get('/member/:memberId', authenticate, requireRoles(...staffRoles), handleGetMemberAccounts);
+
+router.post(
+  '/member/:memberId/ensure-savings',
+  authenticate,
+  requireRoles('ADMIN', 'TELLER', 'MANAGER'),
+  handleEnsureMemberSavingsAccounts
+);
 
 // Get single account
 router.get('/:id', authenticate, requireRoles(...staffRoles), handleGetAccount);

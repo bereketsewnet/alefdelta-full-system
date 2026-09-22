@@ -25,6 +25,12 @@ import { sendPenaltyNotification } from '../../core/utils/sms.js';
 import { findMemberById } from '../members/member.repository.js';
 import { updateMemberActivity } from '../members/member-lifecycle-processor.js';
 import { postMasterEntry } from '../profit-distributions/master-ledger.js';
+import {
+  assertFinancialReferenceOwner,
+  claimFinancialReference,
+  cleanFinancialReference,
+  normalizeFinancialReference
+} from '../financial-references/financial-reference.service.js';
 
 /**
  * Process a loan repayment
@@ -34,7 +40,7 @@ import { postMasterEntry } from '../profit-distributions/master-ledger.js';
  * @param {Object} actor - User making the payment
  * @returns {Object} - Repayment record with calculation details
  */
-export async function processLoanRepayment(loanId, payload, files, actor) {
+export async function processLoanRepayment(loanId, payload, files, actor, options = {}) {
   const loan = await findLoanById(loanId);
   
   if (!loan) {
@@ -62,19 +68,51 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
   }
 
   // Bank receipt is required (either uploaded now, or pre-stored URL e.g. from member repayment request approval)
-  const bankReceiptNo = (payload.bank_receipt_no || '').toString().trim();
+  const bankReceiptNo = cleanFinancialReference(payload.bank_receipt_no);
+  const companyReceiptNo = cleanFinancialReference(payload.company_receipt_no || payload.receipt_no || '');
   const bankReceiptFile = files?.bank_receipt?.[0] || null;
   const bankReceiptPhotoUrlFromPayload = (payload.bank_receipt_photo_url || '').toString().trim() || null;
   if (!bankReceiptNo) {
     throw httpError(400, 'Bank receipt number is required');
   }
+  if (bankReceiptNo.length > 100 || companyReceiptNo.length > 100) {
+    throw httpError(400, 'Receipt numbers must not exceed 100 characters');
+  }
   if (!bankReceiptFile && !bankReceiptPhotoUrlFromPayload) {
     throw httpError(400, 'Bank receipt photo is required');
   }
   
-  // Process in transaction
-  return withTransaction(async (connection) => {
+  const processPayment = async (connection) => {
     const lockedLoan = await findLoanById(loanId, connection);
+    const repaymentId = uuid();
+    if (options.bankReferenceOwner) {
+      await assertFinancialReferenceOwner({
+        reference: bankReceiptNo,
+        referenceKind: options.bankReferenceOwner.referenceKind,
+        sourceId: options.bankReferenceOwner.sourceId,
+        connection
+      });
+    } else {
+      await claimFinancialReference({
+        reference: bankReceiptNo,
+        referenceKind: 'LOAN_REPAYMENT_BANK',
+        sourceId: repaymentId,
+        memberId: loan.member_id,
+        status: 'POSTED',
+        connection
+      });
+    }
+    if (companyReceiptNo) {
+      await claimFinancialReference({
+        reference: companyReceiptNo,
+        referenceKind: 'LOAN_REPAYMENT_COMPANY',
+        sourceId: repaymentId,
+        memberId: loan.member_id,
+        status: 'POSTED',
+        connection
+      });
+    }
+
     const schedule = await listLoanSchedule(loanId, connection, true);
     if (!schedule.length) throw httpError(409, 'This loan has no repayment schedule. Please contact an administrator before accepting payment.');
     const outstandingBalance = roundMoney(schedule.reduce((total, row) => total + Math.max(0, Number(row.scheduled_principal) - Number(row.principal_paid)), 0));
@@ -131,7 +169,6 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
     const isFullyPaid = balanceAfter === 0;
     const nextRow = finalSchedule.find((row) => row.status !== 'PAID');
     // Create repayment record (ensure all numeric values are properly converted)
-    const repaymentId = uuid();
     const repayment = {
       repayment_id: repaymentId,
       loan_id: loanId,
@@ -149,7 +186,7 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
         ? toPublicUrl(bankReceiptFile.path)
         : bankReceiptPhotoUrlFromPayload,
       // Company receipt (optional) is stored in existing receipt_no/receipt_photo_url columns
-      receipt_no: (payload.company_receipt_no || payload.receipt_no || null),
+      receipt_no: companyReceiptNo || null,
       receipt_photo_url: (files?.company_receipt?.[0] || files?.receipt?.[0])
         ? toPublicUrl((files?.company_receipt?.[0] || files?.receipt?.[0]).path)
         : ((payload.company_receipt_photo_url || '').toString().trim() || null),
@@ -241,7 +278,10 @@ export async function processLoanRepayment(loanId, payload, files, actor) {
       closure_message: isFullyPaid ? 'Loan is fully repaid. An Admin or Manager must complete the insurance closure checklist.' : null,
       next_payment_date: newNextPaymentDate
     };
-  });
+  };
+
+  if (options.connection) return processPayment(options.connection);
+  return withTransaction(processPayment);
 }
 
 /**
@@ -326,26 +366,32 @@ export async function updateLoanRepaymentReceiptInfo(repaymentId, payload, files
     throw httpError(404, 'Repayment not found');
   }
 
-  const updates = {};
+  return withTransaction(async (connection) => {
+    const updates = {};
+    if (payload.bank_receipt_no !== undefined) {
+      const value = cleanFinancialReference(payload.bank_receipt_no);
+      if (!value) throw httpError(400, 'Bank receipt number is required');
+      if (value.length > 100) throw httpError(400, 'Bank receipt number must not exceed 100 characters');
+      if (normalizeFinancialReference(value) !== normalizeFinancialReference(existing.bank_receipt_no)) {
+        await claimFinancialReference({ reference: value, referenceKind: 'LOAN_REPAYMENT_BANK', sourceId: repaymentId, memberId: existing.member_id, status: 'POSTED', connection });
+      }
+      updates.bank_receipt_no = value;
+    }
+    if (payload.company_receipt_no !== undefined) {
+      const value = cleanFinancialReference(payload.company_receipt_no);
+      if (value.length > 100) throw httpError(400, 'Company receipt number must not exceed 100 characters');
+      if (value && normalizeFinancialReference(value) !== normalizeFinancialReference(existing.receipt_no)) {
+        await claimFinancialReference({ reference: value, referenceKind: 'LOAN_REPAYMENT_COMPANY', sourceId: repaymentId, memberId: existing.member_id, status: 'POSTED', connection });
+      }
+      updates.receipt_no = value || null;
+    }
 
-  if (payload.bank_receipt_no !== undefined) {
-    updates.bank_receipt_no = payload.bank_receipt_no ? String(payload.bank_receipt_no).trim() : null;
-  }
-  if (payload.company_receipt_no !== undefined) {
-    updates.receipt_no = payload.company_receipt_no ? String(payload.company_receipt_no).trim() : null;
-  }
-
-  const bankReceiptFile = files?.bank_receipt?.[0] || null;
-  const companyReceiptFile = files?.company_receipt?.[0] || null;
-
-  if (bankReceiptFile) {
-    updates.bank_receipt_photo_url = toPublicUrl(bankReceiptFile.path);
-  }
-  if (companyReceiptFile) {
-    updates.receipt_photo_url = toPublicUrl(companyReceiptFile.path);
-  }
-
-  return updateRepayment(repaymentId, updates);
+    const bankReceiptFile = files?.bank_receipt?.[0] || null;
+    const companyReceiptFile = files?.company_receipt?.[0] || null;
+    if (bankReceiptFile) updates.bank_receipt_photo_url = toPublicUrl(bankReceiptFile.path);
+    if (companyReceiptFile) updates.receipt_photo_url = toPublicUrl(companyReceiptFile.path);
+    return updateRepayment(repaymentId, updates, connection);
+  });
 }
 
 /**

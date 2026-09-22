@@ -20,7 +20,7 @@ const loanRepaymentRequestSchema = z.object({
   loan_id: z.string().min(1, 'Please select a loan'),
   amount: z.number().min(1, 'Amount must be greater than 0'),
   payment_method: z.string().min(1, 'Please select a payment method'),
-  bank_receipt_no: z.string().min(1, 'Bank receipt number is required'),
+  bank_receipt_no: z.string().trim().min(1, 'Bank receipt number is required').max(100, 'Receipt number must not exceed 100 characters'),
   notes: z.string().optional(),
   bank_receipt: z.instanceof(File),
 });
@@ -40,6 +40,7 @@ export function LoanRepaymentRequestForm({
 }: LoanRepaymentRequestFormProps) {
   const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingReference, setIsCheckingReference] = useState(false);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   
   // Fetch loans for dropdown (only approved/active loans)
@@ -60,6 +61,8 @@ export function LoanRepaymentRequestForm({
     reset,
     watch,
     setValue,
+    setError,
+    clearErrors,
     formState: { errors },
   } = useForm<LoanRepaymentRequestFormData>({
     resolver: zodResolver(loanRepaymentRequestSchema),
@@ -73,6 +76,32 @@ export function LoanRepaymentRequestForm({
   });
 
   const receiptFile = watch('bank_receipt');
+
+  const checkReferenceAvailability = async (reference: string) => {
+    const cleanedReference = reference.trim();
+    if (!cleanedReference) {
+      setError('bank_receipt_no', { type: 'required', message: 'Bank receipt number is required' });
+      return false;
+    }
+    setIsCheckingReference(true);
+    try {
+      const result = await api.client.checkFinancialReference(cleanedReference);
+      if (!result.available) {
+        setError('bank_receipt_no', { type: 'validate', message: result.message });
+        return false;
+      }
+      clearErrors('bank_receipt_no');
+      return true;
+    } catch (error) {
+      setError('bank_receipt_no', {
+        type: 'validate',
+        message: error instanceof Error ? error.message : 'Unable to validate this receipt number',
+      });
+      return false;
+    } finally {
+      setIsCheckingReference(false);
+    }
+  };
 
   // Handle receipt file change
   const handleReceiptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,13 +118,14 @@ export function LoanRepaymentRequestForm({
   };
 
   const onSubmit = async (data: LoanRepaymentRequestFormData) => {
+    if (!(await checkReferenceAvailability(data.bank_receipt_no))) return;
     setIsSubmitting(true);
     try {
       await api.client.createLoanRepaymentRequest({
         loan_id: data.loan_id,
         amount: data.amount,
         payment_method: data.payment_method,
-        bank_receipt_no: data.bank_receipt_no,
+        bank_receipt_no: data.bank_receipt_no.trim(),
         notes: data.notes || undefined,
         bank_receipt: data.bank_receipt,
       });
@@ -242,8 +272,14 @@ export function LoanRepaymentRequestForm({
                       id="bank_receipt_no"
                       type="text"
                       placeholder="e.g., BANK-REC-2024-001"
-                      {...register('bank_receipt_no')}
+                      {...register('bank_receipt_no', {
+                        onChange: () => clearErrors('bank_receipt_no'),
+                        onBlur: (event) => void checkReferenceAvailability(event.target.value),
+                      })}
                     />
+                    {isCheckingReference && (
+                      <p className="text-xs text-muted-foreground">Checking receipt number...</p>
+                    )}
                     {errors.bank_receipt_no && (
                       <p className="text-sm text-destructive">{errors.bank_receipt_no.message}</p>
                     )}
@@ -333,13 +369,13 @@ export function LoanRepaymentRequestForm({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={isSubmitting || activeLoans.length === 0}
+                  disabled={isSubmitting || isCheckingReference || activeLoans.length === 0}
                   className="flex-1 bg-primary hover:bg-primary-hover"
                 >
-                  {isSubmitting ? (
+                  {(isSubmitting || isCheckingReference) ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Submitting...
+                      {isCheckingReference ? 'Checking...' : 'Submitting...'}
                     </>
                   ) : (
                     t('submit')
@@ -356,5 +392,4 @@ export function LoanRepaymentRequestForm({
 }
 
 export default LoanRepaymentRequestForm;
-
 

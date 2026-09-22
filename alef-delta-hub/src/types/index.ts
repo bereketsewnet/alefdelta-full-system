@@ -169,6 +169,9 @@ export interface Transaction {
   balance_after: number;
   reference: string;
   receipt_photo_url?: string;
+  bank_receipt_no?: string | null;
+  bank_receipt_photo_url?: string | null;
+  remark?: string | null;
   performed_by: string;
   created_at: string;
   idempotency_key: string;

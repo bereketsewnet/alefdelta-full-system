@@ -74,16 +74,16 @@ export async function listMembers({ search, status, limit = 25, offset = 0 }) {
   return rows;
 }
 
-export async function createMember(member) {
-  await execute(
+export async function createMember(member, connection = null) {
+  const sql =
     `INSERT INTO members
     (member_id, membership_no, first_name, middle_name, last_name, phone_primary, email, gender,
      marital_status, age, family_size_female, family_size_male, educational_level, occupation,
      work_experience_years, address_subcity, address_woreda, address_kebele, address_area_name,
      address_house_no, national_id_number, shares_requested, terms_accepted, terms_accepted_at,
      member_type, monthly_income, tin_number, status, profile_photo_url, id_card_url, id_card_front_url, id_card_back_url, password_hash, registered_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`;
+  const params = [
       member.member_id,
       member.membership_no,
       member.first_name,
@@ -117,8 +117,9 @@ export async function createMember(member) {
       member.id_card_front_url || null,
       member.id_card_back_url || null,
       member.password_hash
-    ]
-  );
+    ];
+  if (connection) await connection.execute(sql, params);
+  else await execute(sql, params);
 }
 
 export async function updateMember(memberId, updates, connection = null) {

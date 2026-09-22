@@ -3,7 +3,14 @@ import { authenticate } from '../../core/middleware/auth.js';
 import { requireRoles } from '../../core/middleware/roles.js';
 import { idempotencyMiddleware } from '../../core/middleware/idempotency.js';
 import { upload, attachUploadContext } from '../../core/middleware/upload.js';
-import { handleDeposit, handleWithdraw, handleGetTransactions, handleGetMemberTransactions, handleUpdateTransactionReceipt } from './transaction.controller.js';
+import {
+  handleDeposit,
+  handleWithdraw,
+  handleGetTransactions,
+  handleGetMemberTransactions,
+  handleUpdateTransactionReceipt,
+  handleUpdateTransactionBankReceipt
+} from './transaction.controller.js';
 
 const router = Router();
 
@@ -18,7 +25,12 @@ const optionalFileUpload = (req, res, next) => {
     req.uploadEntityId = 'general';
     
     // After multer processes, update context with account_id if available
-    return upload.single('receipt')(req, res, () => {
+    return upload.fields([
+      { name: 'receipt', maxCount: 1 },
+      { name: 'company_receipt', maxCount: 1 },
+      { name: 'bank_receipt', maxCount: 1 }
+    ])(req, res, (error) => {
+      if (error) return next(error);
       if (req.body?.account_id) {
         req.uploadEntityId = req.body.account_id;
       }
@@ -59,5 +71,13 @@ router.put(
   handleUpdateTransactionReceipt
 );
 
-export default router;
+router.put(
+  '/:txnId/bank-receipt',
+  authenticate,
+  requireRoles(...moneyRoles),
+  attachUploadContext('transactions', (req) => req.params.txnId),
+  upload.single('bank_receipt'),
+  handleUpdateTransactionBankReceipt
+);
 
+export default router;

@@ -71,12 +71,12 @@ export async function countAccounts(filters = {}) {
   return rows[0].total;
 }
 
-export async function createAccount(account) {
-  await execute(
+export async function createAccount(account, connection = null) {
+  const sql =
     `INSERT INTO accounts 
     (account_id, member_id, product_code, balance, lien_amount, currency, metadata, interest_method, status, version, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`;
+  const params = [
       account.account_id,
       account.member_id,
       account.product_code,
@@ -87,8 +87,9 @@ export async function createAccount(account) {
       account.interest_method || 'STANDARD',
       account.status || 'ACTIVE',
       1
-    ]
-  );
+    ];
+  if (connection) await connection.execute(sql, params);
+  else await execute(sql, params);
 }
 
 export async function updateAccount(accountId, updates) {

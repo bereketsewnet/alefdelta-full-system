@@ -1510,6 +1510,8 @@ const RepaymentsTab = ({ loanId }: { loanId: string }) => {
   const [editBankReceiptFile, setEditBankReceiptFile] = useState<File | null>(null);
   const [editCompanyReceiptFile, setEditCompanyReceiptFile] = useState<File | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [editBankReceiptError, setEditBankReceiptError] = useState('');
+  const [editCompanyReceiptError, setEditCompanyReceiptError] = useState('');
   const editBankReceiptRef = useRef<HTMLInputElement>(null);
   const editCompanyReceiptRef = useRef<HTMLInputElement>(null);
   
@@ -1561,6 +1563,8 @@ const RepaymentsTab = ({ loanId }: { loanId: string }) => {
     setEditCompanyReceiptNo(payment?.receipt_no || '');
     setEditBankReceiptFile(null);
     setEditCompanyReceiptFile(null);
+    setEditBankReceiptError('');
+    setEditCompanyReceiptError('');
     if (editBankReceiptRef.current) editBankReceiptRef.current.value = '';
     if (editCompanyReceiptRef.current) editCompanyReceiptRef.current.value = '';
     setEditOpen(true);
@@ -1570,9 +1574,46 @@ const RepaymentsTab = ({ loanId }: { loanId: string }) => {
     if (!editingPayment?.repayment_id) return;
     try {
       setSavingEdit(true);
+      setEditBankReceiptError('');
+      setEditCompanyReceiptError('');
+      const normalizeReference = (value: string) => value.trim().replace(/\s+/g, ' ').toUpperCase();
+      const bankReference = editBankReceiptNo.trim();
+      const companyReference = editCompanyReceiptNo.trim();
+      if (!bankReference) {
+        setEditBankReceiptError('Bank receipt number is required.');
+        return;
+      }
+      if (companyReference && normalizeReference(companyReference) === normalizeReference(bankReference)) {
+        setEditCompanyReceiptError('Company and bank receipt numbers must be different.');
+        return;
+      }
+
+      const referencesToCheck = [
+        {
+          value: bankReference,
+          original: editingPayment.bank_receipt_no || '',
+          setError: setEditBankReceiptError,
+        },
+        {
+          value: companyReference,
+          original: editingPayment.receipt_no || '',
+          setError: setEditCompanyReceiptError,
+        },
+      ];
+      for (const reference of referencesToCheck) {
+        if (!reference.value || normalizeReference(reference.value) === normalizeReference(reference.original)) continue;
+        const result = await api.get<{ available: boolean; message: string }>('/financial-references/check', {
+          params: { reference: reference.value },
+        });
+        if (!result.data.available) {
+          reference.setError(result.data.message);
+          return;
+        }
+      }
+
       const formData = new FormData();
-      formData.append('bank_receipt_no', editBankReceiptNo.trim());
-      formData.append('company_receipt_no', editCompanyReceiptNo.trim());
+      formData.append('bank_receipt_no', bankReference);
+      formData.append('company_receipt_no', companyReference);
       if (editBankReceiptFile) formData.append('bank_receipt', editBankReceiptFile);
       if (editCompanyReceiptFile) formData.append('company_receipt', editCompanyReceiptFile);
 
@@ -1749,7 +1790,15 @@ const RepaymentsTab = ({ loanId }: { loanId: string }) => {
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>Bank Receipt Number</Label>
-            <Input value={editBankReceiptNo} onChange={(e) => setEditBankReceiptNo(e.target.value)} />
+            <Input
+              value={editBankReceiptNo}
+              onChange={(e) => {
+                setEditBankReceiptNo(e.target.value);
+                setEditBankReceiptError('');
+              }}
+              className={editBankReceiptError ? 'border-destructive' : ''}
+            />
+            {editBankReceiptError && <p className="text-sm text-destructive">{editBankReceiptError}</p>}
           </div>
           <div className="space-y-2">
             <Label>Bank Receipt Photo</Label>
@@ -1762,7 +1811,15 @@ const RepaymentsTab = ({ loanId }: { loanId: string }) => {
           </div>
           <div className="space-y-2">
             <Label>Company Receipt Number</Label>
-            <Input value={editCompanyReceiptNo} onChange={(e) => setEditCompanyReceiptNo(e.target.value)} />
+            <Input
+              value={editCompanyReceiptNo}
+              onChange={(e) => {
+                setEditCompanyReceiptNo(e.target.value);
+                setEditCompanyReceiptError('');
+              }}
+              className={editCompanyReceiptError ? 'border-destructive' : ''}
+            />
+            {editCompanyReceiptError && <p className="text-sm text-destructive">{editCompanyReceiptError}</p>}
           </div>
           <div className="space-y-2">
             <Label>Company Receipt Photo</Label>

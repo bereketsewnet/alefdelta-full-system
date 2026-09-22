@@ -10,7 +10,10 @@ import {
 } from './account.repository.js';
 import { findMemberById } from '../members/member.repository.js';
 import { findAccountProductByCode } from '../account-products/account-product.repository.js';
-import { query, execute } from '../../core/db.js';
+import { query, execute, withTransaction } from '../../core/db.js';
+import { insertAuditLog } from '../admin/audit.repository.js';
+
+export const DEFAULT_MEMBER_SAVINGS_PRODUCT_CODES = ['SAV_VOLUNTARY', 'SAV_COMPULSORY'];
 
 function parseMetadata(raw) {
   if (!raw) return null;
@@ -135,52 +138,124 @@ export async function getAccountsForMember(memberId) {
   return accounts.map(addComputedFields);
 }
 
-export async function createAccount(payload) {
-  // Verify member exists
-  const member = await findMemberById(payload.member_id);
-  if (!member) {
-    throw httpError(404, 'Member not found');
-  }
-  
-  // Allow account creation for PENDING and ACTIVE members
-  if (member.status === 'SUSPENDED' || member.status === 'CLOSED') {
-    throw httpError(400, 'Cannot open account for suspended or closed members');
-  }
-  
-  // Verify account product exists and is active
-  const product = await findAccountProductByCode(payload.product_code);
-  if (!product) {
-    throw httpError(404, `Account product '${payload.product_code}' not found`);
-  }
-  if (!product.is_active) {
-    throw httpError(400, `Account product '${payload.product_code}' is not active`);
-  }
-  
-  // Check if account with same product already exists
-  const existing = await query(
-    'SELECT * FROM accounts WHERE member_id = ? AND product_code = ? AND status != ?',
-    [payload.member_id, payload.product_code, 'CLOSED']
-  );
-  
-  if (existing.length > 0) {
-    throw httpError(400, 'Member already has an active account with this product');
-  }
-  
+export async function createAccount(payload, actor = null) {
   const accountId = uuid();
-  const metadata = buildAccountMetadata(product, payload.metadata || {});
-  await createAccountRepo({
-    account_id: accountId,
-    member_id: payload.member_id,
-    product_code: payload.product_code,
-    currency: payload.currency || 'ETB',
-    balance: 0,
-    lien_amount: 0,
-    metadata,
-    interest_method: product.interest_method || 'STANDARD',
-    status: 'ACTIVE'
+  await withTransaction(async (connection) => {
+    const member = await findMemberById(payload.member_id, connection, true);
+    if (!member) throw httpError(404, 'Member not found');
+    if (member.status === 'SUSPENDED' || member.status === 'CLOSED') {
+      throw httpError(400, 'Cannot open account for suspended or closed members');
+    }
+
+    const product = await findAccountProductByCode(payload.product_code);
+    if (!product) throw httpError(404, `Account product '${payload.product_code}' not found`);
+    if (!product.is_active) throw httpError(400, `Account product '${payload.product_code}' is not active`);
+
+    const [existing] = await connection.query(
+      'SELECT account_id FROM accounts WHERE member_id = ? AND product_code = ? AND status != ? LIMIT 1',
+      [payload.member_id, payload.product_code, 'CLOSED']
+    );
+    if (existing.length > 0) throw httpError(400, 'Member already has an active account with this product');
+
+    const metadata = buildAccountMetadata(product, payload.metadata || {});
+    await createAccountRepo({
+      account_id: accountId,
+      member_id: payload.member_id,
+      product_code: payload.product_code,
+      currency: payload.currency || 'ETB',
+      balance: 0,
+      lien_amount: 0,
+      metadata,
+      interest_method: product.interest_method || 'STANDARD',
+      status: 'ACTIVE'
+    }, connection);
+    await insertAuditLog({
+      userId: actor?.userId || null,
+      action: 'CREATE_MEMBER_ACCOUNT',
+      entity: 'accounts',
+      entityId: accountId,
+      metadata: { member_id: payload.member_id, product_code: payload.product_code },
+      connection
+    });
   });
-  
   return getAccountById(accountId);
+}
+
+export async function ensureMemberSavingsAccounts(memberId, productCodes, actor = null, existingConnection = null) {
+  const usingDefaultProducts = productCodes === undefined;
+  let requestedCodes = [...new Set(
+    (productCodes === undefined ? DEFAULT_MEMBER_SAVINGS_PRODUCT_CODES : productCodes)
+      .map((code) => String(code || '').trim())
+      .filter(Boolean)
+  )];
+
+  const ensure = async (connection) => {
+    const member = await findMemberById(memberId, connection, true);
+    if (!member) throw httpError(404, 'Member not found');
+    if (member.status === 'SUSPENDED' || member.status === 'CLOSED') {
+      throw httpError(400, 'Cannot open accounts for suspended or closed members');
+    }
+    if (requestedCodes.length === 0) return { created: [], existing: [] };
+
+    const productPlaceholders = requestedCodes.map(() => '?').join(',');
+    const [products] = await connection.query(
+      `SELECT * FROM account_products
+       WHERE product_code IN (${productPlaceholders}) AND is_active = 1
+         AND (category = 'SAVINGS' OR financial_category IN ('COMPULSORY_SAVINGS','VOLUNTARY_SAVINGS'))`,
+      requestedCodes
+    );
+    const productsByCode = new Map(products.map((product) => [product.product_code, product]));
+    const invalidCodes = requestedCodes.filter((code) => !productsByCode.has(code));
+    if (invalidCodes.length && !usingDefaultProducts) {
+      throw httpError(400, `Inactive, missing, or non-savings account product(s): ${invalidCodes.join(', ')}`);
+    }
+    if (usingDefaultProducts) requestedCodes = requestedCodes.filter((code) => productsByCode.has(code));
+    if (requestedCodes.length === 0) return { created: [], existing: [] };
+
+    const incompatible = products.filter((product) => product.guardian_required || product.commodity_required || product.target_required || ['CHILDREN', 'IN_KIND', 'MICRO'].includes(product.product_kind));
+    if (incompatible.length) {
+      throw httpError(400, `These products require additional information and must be opened separately: ${incompatible.map((product) => product.product_code).join(', ')}`);
+    }
+
+    const accountPlaceholders = requestedCodes.map(() => '?').join(',');
+    const [existingRows] = await connection.query(
+      `SELECT account_id, product_code FROM accounts
+       WHERE member_id = ? AND product_code IN (${accountPlaceholders}) AND status != 'CLOSED'`,
+      [memberId, ...requestedCodes]
+    );
+    const existingCodes = new Set(existingRows.map((account) => account.product_code));
+    const created = [];
+    for (const productCode of requestedCodes) {
+      if (existingCodes.has(productCode)) continue;
+      const product = productsByCode.get(productCode);
+      const accountId = uuid();
+      await createAccountRepo({
+        account_id: accountId,
+        member_id: memberId,
+        product_code: productCode,
+        currency: 'ETB',
+        balance: 0,
+        lien_amount: 0,
+        metadata: null,
+        interest_method: product.interest_method || 'STANDARD',
+        status: 'ACTIVE'
+      }, connection);
+      await insertAuditLog({
+        userId: actor?.userId || null,
+        action: 'AUTO_CREATE_MEMBER_SAVINGS_ACCOUNT',
+        entity: 'accounts',
+        entityId: accountId,
+        metadata: { member_id: memberId, product_code: productCode },
+        connection
+      });
+      created.push({ account_id: accountId, product_code: productCode });
+    }
+    return { created, existing: [...existingCodes] };
+  };
+
+  if (existingConnection) return ensure(existingConnection);
+  const result = await withTransaction(ensure);
+  return { ...result, accounts: await getAccountsForMember(memberId) };
 }
 
 export async function updateAccount(accountId, payload) {

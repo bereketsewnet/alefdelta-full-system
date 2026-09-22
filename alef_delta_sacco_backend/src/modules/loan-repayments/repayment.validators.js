@@ -4,12 +4,14 @@ export const repaymentSchema = Joi.object({
   amount: Joi.number().positive().required(),
   payment_method: Joi.string().valid('CASH', 'BANK_TRANSFER', 'MOBILE_MONEY', 'CHECK').default('CASH'),
   // New fields
-  bank_receipt_no: Joi.string().allow(null, '').optional(),
-  company_receipt_no: Joi.string().allow(null, '').optional(),
+  bank_receipt_no: Joi.string().trim().min(1).max(100).required().messages({
+    'string.empty': 'Bank receipt number is required',
+    'any.required': 'Bank receipt number is required'
+  }),
+  company_receipt_no: Joi.string().trim().max(100).allow(null, '').optional(),
   // Backwards compatibility (old single receipt fields)
-  receipt_no: Joi.string().allow(null, '').optional(),
+  receipt_no: Joi.string().trim().max(100).allow(null, '').optional(),
   notes: Joi.string().allow(null, '').optional(),
   idempotency_key: Joi.string().allow(null, '').optional()
 });
-
 

@@ -18,6 +18,7 @@ import { query, withTransaction } from '../../core/db.js';
 import { postMasterEntry } from '../profit-distributions/master-ledger.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
 import { addisAbabaDate } from '../profit-distributions/money.js';
+import { ensureMemberSavingsAccounts } from '../accounts/account.service.js';
 
 function generateMembershipNumber() {
   return `MEM-${Date.now()}`;
@@ -127,7 +128,7 @@ function transformMemberPayload(payload) {
   return transformed;
 }
 
-export async function createNewMember(payload) {
+export async function createNewMember(payload, actor = null) {
   // Check for duplicate phone number before creating
   const existingMember = await findMemberByPhone(payload.phone_primary);
   if (existingMember) {
@@ -140,12 +141,29 @@ export async function createNewMember(payload) {
   // Transform frontend values to database format
   const transformedPayload = transformMemberPayload(payload);
   
+  const membershipNo = generateMembershipNumber();
   try {
-    await createMember({
-      ...transformedPayload,
-      member_id: memberId,
-      membership_no: generateMembershipNumber(),
-      password_hash: passwordHash
+    await withTransaction(async (connection) => {
+      await createMember({
+        ...transformedPayload,
+        member_id: memberId,
+        membership_no: membershipNo,
+        password_hash: passwordHash
+      }, connection);
+      await ensureMemberSavingsAccounts(
+        memberId,
+        payload.account_product_codes,
+        actor,
+        connection
+      );
+      await insertAuditLog({
+        userId: actor?.userId || null,
+        action: 'CREATE_MEMBER',
+        entity: 'members',
+        entityId: memberId,
+        metadata: { membership_no: membershipNo, account_product_codes: payload.account_product_codes || ['SAV_VOLUNTARY', 'SAV_COMPULSORY'] },
+        connection
+      });
     });
   } catch (error) {
     // Handle unique constraint errors with better messages

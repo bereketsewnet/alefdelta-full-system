@@ -10,6 +10,7 @@ import { generateIdempotencyKey, calculateAvailableBalance, validateWithdrawal, 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -23,6 +24,8 @@ const transactionSchema = z.object({
   type: z.enum(["DEPOSIT", "WITHDRAWAL"]),
   amount: z.coerce.number().positive("Amount must be positive"),
   reference: z.string().min(1, "Reference is required"),
+  bank_receipt_no: z.string().trim().max(160, "Bank receipt number is too long").optional(),
+  remark: z.string().trim().max(2000, "Remark must not exceed 2,000 characters").optional(),
 });
 
 type TransactionForm = z.infer<typeof transactionSchema>;
@@ -35,9 +38,13 @@ const NewTransaction = () => {
   const [idempotencyKey] = useState(generateIdempotencyKey());
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [bankReceiptFile, setBankReceiptFile] = useState<File | null>(null);
+  const [bankReceiptPreview, setBankReceiptPreview] = useState<string | null>(null);
   const [amountInput, setAmountInput] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCheckingReference, setIsCheckingReference] = useState(false);
   const receiptFileRef = useRef<HTMLInputElement>(null);
+  const bankReceiptFileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
@@ -53,6 +60,8 @@ const NewTransaction = () => {
     handleSubmit,
     watch,
     setValue,
+    setError,
+    clearErrors,
     formState: { errors, isSubmitting },
   } = useForm<TransactionForm>({
     resolver: zodResolver(transactionSchema),
@@ -112,6 +121,43 @@ const NewTransaction = () => {
   const transactionType = watch("type");
   const amount = watch("amount");
 
+  const checkReferenceAvailability = async (
+    reference: string,
+    field: "reference" | "bank_receipt_no" = "reference",
+    required = true
+  ) => {
+    const cleanedReference = reference.trim();
+    if (!cleanedReference) {
+      if (required) {
+        setError(field, { type: "required", message: "Reference / Receipt No. is required" });
+        return false;
+      }
+      clearErrors(field);
+      return true;
+    }
+
+    setIsCheckingReference(true);
+    try {
+      const response = await api.get<{ available: boolean; message: string }>("/financial-references/check", {
+        params: { reference: cleanedReference },
+      });
+      if (!response.data.available) {
+        setError(field, { type: "validate", message: response.data.message });
+        return false;
+      }
+      clearErrors(field);
+      return true;
+    } catch (error: any) {
+      setError(field, {
+        type: "validate",
+        message: error.response?.data?.message || "Unable to validate this reference number",
+      });
+      return false;
+    } finally {
+      setIsCheckingReference(false);
+    }
+  };
+
   useEffect(() => {
     if (accountId && accountsData) {
       const account = accountsData.find((a) => a.account_id === accountId);
@@ -131,8 +177,20 @@ const NewTransaction = () => {
     }
   };
 
+  const handleBankReceiptChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBankReceiptFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setBankReceiptPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
   const onSubmit = async (data: TransactionForm) => {
     if (!selectedAccount) return;
+
+    if (!(await checkReferenceAvailability(data.reference))) return;
+    if (data.bank_receipt_no && !(await checkReferenceAvailability(data.bank_receipt_no, "bank_receipt_no", false))) return;
 
     // For withdrawals: block on frozen or closed accounts
     if (data.type === 'WITHDRAWAL') {
@@ -180,13 +238,16 @@ const NewTransaction = () => {
     try {
       const endpoint = data.type === "DEPOSIT" ? "/transactions/deposit" : "/transactions/withdraw";
       
-      // If receipt file is provided, use FormData, otherwise use JSON
-      if (receiptFile) {
+      // Use multipart whenever either proof photo is present.
+      if (receiptFile || bankReceiptFile) {
         const formData = new FormData();
         formData.append("account_id", data.account_id);
         formData.append("amount", data.amount.toString());
         formData.append("reference", data.reference || '');
-        formData.append("receipt", receiptFile);
+        if (data.bank_receipt_no) formData.append("bank_receipt_no", data.bank_receipt_no);
+        if (data.remark) formData.append("remark", data.remark);
+        if (receiptFile) formData.append("company_receipt", receiptFile);
+        if (bankReceiptFile) formData.append("bank_receipt", bankReceiptFile);
         
         await api.post(endpoint, formData, {
           headers: {
@@ -198,7 +259,9 @@ const NewTransaction = () => {
         const payload = {
           account_id: data.account_id,
           amount: data.amount,
-          reference: data.reference || ''
+          reference: data.reference || '',
+          bank_receipt_no: data.bank_receipt_no || undefined,
+          remark: data.remark || undefined
         };
         
         await api.post(endpoint, payload, {
@@ -221,8 +284,11 @@ const NewTransaction = () => {
       // Reset form
       setReceiptFile(null);
       setReceiptPreview(null);
+      setBankReceiptFile(null);
+      setBankReceiptPreview(null);
       setAmountInput("");
       if (receiptFileRef.current) receiptFileRef.current.value = '';
+      if (bankReceiptFileRef.current) bankReceiptFileRef.current.value = '';
       
       // Small delay to show success message before navigation
       setTimeout(() => {
@@ -514,19 +580,25 @@ const NewTransaction = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="reference">Reference / Receipt No.</Label>
+                <Label htmlFor="reference">SACCO / Company Receipt No. <span className="text-destructive">*</span></Label>
                 <Input
                   id="reference"
-                  placeholder="e.g., RCPT-2024-001"
-                  {...register("reference")}
+                  placeholder="e.g., SACCO-RCPT-2026-001"
+                  {...register("reference", {
+                    onChange: () => clearErrors("reference"),
+                    onBlur: (event) => void checkReferenceAvailability(event.target.value),
+                  })}
                 />
+                {isCheckingReference && (
+                  <p className="text-xs text-muted-foreground">Checking receipt number...</p>
+                )}
                 {errors.reference && (
                   <p className="text-sm text-destructive">{errors.reference.message}</p>
                 )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="receipt">Receipt Photo <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+                <Label htmlFor="receipt">SACCO / Company Receipt Photo <span className="text-muted-foreground text-xs">(Optional)</span></Label>
                 <div className="flex items-center gap-4">
                   <input
                     ref={receiptFileRef}
@@ -542,13 +614,13 @@ const NewTransaction = () => {
                     onClick={() => receiptFileRef.current?.click()}
                   >
                     <Upload className="h-4 w-4 mr-2" />
-                    {receiptPreview ? 'Replace Receipt' : 'Upload Receipt Photo'}
+                    {receiptPreview ? 'Replace Company Receipt' : 'Upload Company Receipt'}
                   </Button>
                   {receiptPreview && (
                     <div className="relative">
                       <img
                         src={receiptPreview}
-                        alt="Receipt Preview"
+                        alt="Company receipt preview"
                         className="h-20 w-auto object-contain border rounded-lg"
                       />
                       <Button
@@ -567,7 +639,60 @@ const NewTransaction = () => {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">Upload a photo of the money receipt (optional)</p>
+                <p className="text-xs text-muted-foreground">Internal SACCO/company receipt or voucher copy.</p>
+              </div>
+
+              <div className="rounded-lg border p-4 space-y-4">
+                <div>
+                  <p className="font-medium">Bank Proof</p>
+                  <p className="text-xs text-muted-foreground">External bank receipt details for a bank-paid transaction.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bank_receipt_no">Bank Receipt No. <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+                  <Input
+                    id="bank_receipt_no"
+                    placeholder="e.g., BANK-TRX-2026-001"
+                    {...register("bank_receipt_no", {
+                      onChange: () => clearErrors("bank_receipt_no"),
+                      onBlur: (event) => void checkReferenceAvailability(event.target.value, "bank_receipt_no", false),
+                    })}
+                  />
+                  {errors.bank_receipt_no && <p className="text-sm text-destructive">{errors.bank_receipt_no.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bank_receipt">Bank Receipt Photo <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <input ref={bankReceiptFileRef} id="bank_receipt" type="file" accept="image/*" className="hidden" onChange={handleBankReceiptChange} />
+                    <Button type="button" variant="outline" onClick={() => bankReceiptFileRef.current?.click()}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      {bankReceiptPreview ? "Replace Bank Receipt" : "Upload Bank Receipt"}
+                    </Button>
+                    {bankReceiptPreview && (
+                      <div className="relative">
+                        <img src={bankReceiptPreview} alt="Bank receipt preview" className="h-20 w-auto object-contain border rounded-lg" />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                          onClick={() => {
+                            setBankReceiptFile(null);
+                            setBankReceiptPreview(null);
+                            if (bankReceiptFileRef.current) bankReceiptFileRef.current.value = '';
+                          }}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="remark">Reason / Remark <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+                <Textarea id="remark" placeholder="Reason for the transaction or additional notes..." rows={3} {...register("remark")} />
+                {errors.remark && <p className="text-sm text-destructive">{errors.remark.message}</p>}
               </div>
 
               {amount > 0 && selectedAccount && (
@@ -614,16 +739,17 @@ const NewTransaction = () => {
               disabled={
                 isSubmitting || 
                 isProcessing ||
+                isCheckingReference ||
                 !selectedAccount || 
                 selectedAccount.status === 'CLOSED' ||
                 (transactionType === 'WITHDRAWAL' && selectedAccount.status === 'FROZEN') ||
                 (transactionType === 'WITHDRAWAL' && selectedMember?.status === 'PENDING')
               }
             >
-              {(isSubmitting || isProcessing) ? (
+              {(isSubmitting || isProcessing || isCheckingReference) ? (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
+                  {isCheckingReference ? "Checking reference..." : "Processing..."}
                 </>
               ) : selectedAccount && selectedAccount.status === 'CLOSED' ? (
                 "Cannot process - Account is CLOSED"

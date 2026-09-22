@@ -5,6 +5,11 @@ import { findMemberById } from '../members/member.repository.js';
 import { findAccountById } from '../accounts/account.repository.js';
 import { deposit } from '../transactions/transaction.service.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
+import {
+  claimFinancialReference,
+  cleanFinancialReference,
+  markFinancialReferenceRetired
+} from '../financial-references/financial-reference.service.js';
 
 export async function createDepositRequest(memberId, payload) {
   // Verify member exists
@@ -28,29 +33,34 @@ export async function createDepositRequest(memberId, payload) {
     throw httpError(400, 'Amount must be greater than zero');
   }
 
-  // Create deposit request
-  const requestId = uuid();
-  await query(
-    `INSERT INTO deposit_requests 
-    (request_id, member_id, account_id, amount, reference_number, receipt_photo_url, description, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
-    [
-      requestId,
-      memberId,
-      payload.account_id,
-      amount,
-      payload.reference_number || null,
-      payload.receipt_photo_url || null,
-      payload.description || null,
-    ]
-  );
+  const referenceNumber = cleanFinancialReference(payload.reference_number);
+  if (!referenceNumber) throw httpError(400, 'Reference / Receipt No. is required');
+  if (referenceNumber.length > 100) throw httpError(400, 'Reference / Receipt No. must not exceed 100 characters');
 
-  await insertAuditLog({
-    userId: null,
-    action: 'DEPOSIT_REQUEST_CREATED',
-    entity: 'deposit_requests',
-    entityId: requestId,
-    metadata: { member_id: memberId, amount, account_id: payload.account_id },
+  const requestId = uuid();
+  await withTransaction(async (connection) => {
+    await claimFinancialReference({
+      reference: referenceNumber,
+      referenceKind: 'DEPOSIT_REQUEST',
+      sourceId: requestId,
+      memberId,
+      status: 'RESERVED',
+      connection
+    });
+    await connection.execute(
+      `INSERT INTO deposit_requests
+      (request_id, member_id, account_id, amount, reference_number, receipt_photo_url, description, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+      [requestId, memberId, payload.account_id, amount, referenceNumber, payload.receipt_photo_url || null, payload.description || null]
+    );
+    await insertAuditLog({
+      userId: null,
+      action: 'DEPOSIT_REQUEST_CREATED',
+      entity: 'deposit_requests',
+      entityId: requestId,
+      metadata: { member_id: memberId, amount, account_id: payload.account_id, reference_number: referenceNumber },
+      connection
+    });
   });
 
   return findDepositRequestById(requestId);
@@ -128,8 +138,9 @@ export async function listAllDepositRequests(filters = {}) {
 }
 
 export async function approveDepositRequest(requestId, approverId) {
-  return withTransaction(async (connection) => {
-    const request = await findDepositRequestById(requestId);
+  await withTransaction(async (connection) => {
+    const [rows] = await connection.query('SELECT * FROM deposit_requests WHERE request_id = ? FOR UPDATE', [requestId]);
+    const request = rows[0];
     if (!request) {
       throw httpError(404, 'Deposit request not found');
     }
@@ -141,10 +152,18 @@ export async function approveDepositRequest(requestId, approverId) {
     const transaction = await deposit({
       accountId: request.account_id,
       amount: request.amount,
-      reference: request.reference_number || `Deposit Request ${request.request_id.substring(0, 8)}`,
-      receiptPhotoUrl: request.receipt_photo_url,
+      reference: `MP-DEP-${request.request_id}`,
+      receiptPhotoUrl: null,
+      bankReceiptNo: request.reference_number,
+      bankReceiptPhotoUrl: request.receipt_photo_url,
+      remark: request.description,
       performedBy: approverId,
       idempotencyKey: `deposit-request-${requestId}`,
+      connection,
+      bankReferenceOwner: {
+        referenceKind: 'DEPOSIT_REQUEST',
+        sourceId: requestId
+      }
     });
 
     // Update request status
@@ -155,33 +174,24 @@ export async function approveDepositRequest(requestId, approverId) {
       [approverId, requestId]
     );
 
-    // Audit log (non-blocking for faster response)
-    insertAuditLog({
+    await insertAuditLog({
       userId: approverId,
       action: 'DEPOSIT_REQUEST_APPROVED',
       entity: 'deposit_requests',
       entityId: requestId,
       metadata: { transaction_id: transaction.txn_id },
-    }).catch(err => {
-      console.error('Failed to insert audit log for deposit request approval:', err);
+      connection
     });
-
-    const approvedRequest = await findDepositRequestById(requestId);
-    
-    // Create notification (fire-and-forget for faster response)
-    if (approvedRequest.member_id) {
-      const { NotificationHelpers } = await import('../notifications/notification.service.js');
-      NotificationHelpers.depositRequestApproved(
-        approvedRequest.member_id,
-        request.amount,
-        request.account_id
-      ).catch(err => {
-        console.error('Failed to create deposit request approval notification:', err);
-      });
-    }
-
-    return approvedRequest;
   });
+
+  const approvedRequest = await findDepositRequestById(requestId);
+  if (approvedRequest?.member_id) {
+    const { NotificationHelpers } = await import('../notifications/notification.service.js');
+    NotificationHelpers.depositRequestApproved(approvedRequest.member_id, approvedRequest.amount, approvedRequest.account_id).catch(err => {
+      console.error('Failed to create deposit request approval notification:', err);
+    });
+  }
+  return approvedRequest;
 }
 
 export async function rejectDepositRequest(requestId, approverId, reason) {
@@ -193,19 +203,22 @@ export async function rejectDepositRequest(requestId, approverId, reason) {
     throw httpError(400, `Request is already ${request.status}`);
   }
 
-  await query(
-    `UPDATE deposit_requests 
-    SET status = 'REJECTED', approved_by = ?, approved_at = NOW(), rejection_reason = ?
-    WHERE request_id = ?`,
-    [approverId, reason || null, requestId]
-  );
-
-  await insertAuditLog({
-    userId: approverId,
-    action: 'DEPOSIT_REQUEST_REJECTED',
-    entity: 'deposit_requests',
-    entityId: requestId,
-    metadata: { reason },
+  await withTransaction(async (connection) => {
+    await connection.execute(
+      `UPDATE deposit_requests
+      SET status = 'REJECTED', approved_by = ?, approved_at = NOW(), rejection_reason = ?
+      WHERE request_id = ? AND status = 'PENDING'`,
+      [approverId, reason || null, requestId]
+    );
+    await markFinancialReferenceRetired(request.reference_number, 'DEPOSIT_REQUEST', requestId, connection);
+    await insertAuditLog({
+      userId: approverId,
+      action: 'DEPOSIT_REQUEST_REJECTED',
+      entity: 'deposit_requests',
+      entityId: requestId,
+      metadata: { reason },
+      connection
+    });
   });
 
   const rejectedRequest = await findDepositRequestById(requestId);
@@ -224,4 +237,3 @@ export async function rejectDepositRequest(requestId, approverId, reason) {
 
   return rejectedRequest;
 }
-

@@ -15,3 +15,6 @@ export const updateAccountSchema = Joi.object({
   metadata: Joi.object().unknown(true).allow(null)
 }).min(1);
 
+export const ensureSavingsAccountsSchema = Joi.object({
+  product_codes: Joi.array().items(Joi.string().trim().max(30)).max(50).unique().optional()
+});

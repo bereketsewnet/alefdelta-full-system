@@ -62,6 +62,9 @@ const LoanPayment = () => {
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [bankReceiptNo, setBankReceiptNo] = useState("");
   const [companyReceiptNo, setCompanyReceiptNo] = useState("");
+  const [bankReceiptNoError, setBankReceiptNoError] = useState("");
+  const [companyReceiptNoError, setCompanyReceiptNoError] = useState("");
+  const [isCheckingReferences, setIsCheckingReferences] = useState(false);
   const [notes, setNotes] = useState("");
   const [penaltyAdjustment, setPenaltyAdjustment] = useState("");
   const [penaltyAdjustmentReason, setPenaltyAdjustmentReason] = useState("");
@@ -193,6 +196,8 @@ const LoanPayment = () => {
     setPaymentMethod("CASH");
     setBankReceiptNo("");
     setCompanyReceiptNo("");
+    setBankReceiptNoError("");
+    setCompanyReceiptNoError("");
     setNotes("");
     setBankReceiptFile(null);
     setBankReceiptPreview(null);
@@ -201,6 +206,15 @@ const LoanPayment = () => {
     setCompanyReceiptFile(null);
     setCompanyReceiptPreview(null);
     if (companyReceiptFileRef.current) companyReceiptFileRef.current.value = '';
+  };
+
+  const checkReferenceAvailability = async (reference: string) => {
+    const cleanedReference = reference.trim();
+    if (!cleanedReference) return false;
+    const response = await api.get<{ available: boolean; message: string }>("/financial-references/check", {
+      params: { reference: cleanedReference },
+    });
+    return response.data;
   };
 
   const handleSubmit = async () => {
@@ -230,6 +244,42 @@ const LoanPayment = () => {
         variant: "destructive"
       });
       return;
+    }
+
+    if (
+      companyReceiptNo.trim() &&
+      companyReceiptNo.trim().replace(/\s+/g, " ").toUpperCase() ===
+        bankReceiptNo.trim().replace(/\s+/g, " ").toUpperCase()
+    ) {
+      setCompanyReceiptNoError("Company and bank receipt numbers must be different.");
+      return;
+    }
+
+    setIsCheckingReferences(true);
+    setBankReceiptNoError("");
+    setCompanyReceiptNoError("");
+    try {
+      const bankAvailability = await checkReferenceAvailability(bankReceiptNo);
+      if (!bankAvailability.available) {
+        setBankReceiptNoError(bankAvailability.message);
+        return;
+      }
+      if (companyReceiptNo.trim()) {
+        const companyAvailability = await checkReferenceAvailability(companyReceiptNo);
+        if (!companyAvailability.available) {
+          setCompanyReceiptNoError(companyAvailability.message);
+          return;
+        }
+      }
+    } catch (error: any) {
+      toast({
+        title: "Reference Validation Failed",
+        description: error.response?.data?.message || "Unable to validate the receipt number",
+        variant: "destructive",
+      });
+      return;
+    } finally {
+      setIsCheckingReferences(false);
     }
 
     const formData = new FormData();
@@ -541,10 +591,23 @@ const LoanPayment = () => {
                         <Input
                           id="bank_receipt_no"
                           value={bankReceiptNo}
-                          onChange={(e) => setBankReceiptNo(e.target.value)}
+                          onChange={(e) => {
+                            setBankReceiptNo(e.target.value);
+                            setBankReceiptNoError("");
+                          }}
+                          onBlur={async () => {
+                            if (!bankReceiptNo.trim()) return;
+                            try {
+                              const result = await checkReferenceAvailability(bankReceiptNo);
+                              setBankReceiptNoError(result.available ? "" : result.message);
+                            } catch {
+                              setBankReceiptNoError("Unable to validate this receipt number.");
+                            }
+                          }}
                           placeholder="BANK-REC-2024-001"
-                          className="mt-1"
+                          className={`mt-1 ${bankReceiptNoError ? "border-destructive" : ""}`}
                         />
+                        {bankReceiptNoError && <p className="mt-1 text-sm text-destructive">{bankReceiptNoError}</p>}
                       </div>
 
                       <div>
@@ -569,10 +632,23 @@ const LoanPayment = () => {
                         <Input
                           id="company_receipt_no"
                           value={companyReceiptNo}
-                          onChange={(e) => setCompanyReceiptNo(e.target.value)}
+                          onChange={(e) => {
+                            setCompanyReceiptNo(e.target.value);
+                            setCompanyReceiptNoError("");
+                          }}
+                          onBlur={async () => {
+                            if (!companyReceiptNo.trim()) return;
+                            try {
+                              const result = await checkReferenceAvailability(companyReceiptNo);
+                              setCompanyReceiptNoError(result.available ? "" : result.message);
+                            } catch {
+                              setCompanyReceiptNoError("Unable to validate this receipt number.");
+                            }
+                          }}
                           placeholder="COMP-REC-2024-001"
-                          className="mt-1"
+                          className={`mt-1 ${companyReceiptNoError ? "border-destructive" : ""}`}
                         />
+                        {companyReceiptNoError && <p className="mt-1 text-sm text-destructive">{companyReceiptNoError}</p>}
                       </div>
 
                       <div>
@@ -606,12 +682,12 @@ const LoanPayment = () => {
 
                       <Button
                         onClick={handleSubmit}
-                        disabled={paymentMutation.isPending}
+                        disabled={paymentMutation.isPending || isCheckingReferences}
                         className="w-full"
                         size="lg"
                       >
-                        {paymentMutation.isPending ? (
-                          "Processing..."
+                        {(paymentMutation.isPending || isCheckingReferences) ? (
+                          isCheckingReferences ? "Checking references..." : "Processing..."
                         ) : (
                           <>
                             <CheckCircle2 className="mr-2 h-5 w-5" />

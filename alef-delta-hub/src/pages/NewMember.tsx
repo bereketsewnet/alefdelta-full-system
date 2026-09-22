@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, UserPlus, RefreshCw, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ModernHeader } from "@/components/shared/ModernHeader";
+import { useAccountProducts } from "@/hooks/use-account-products";
+import {
+  DEFAULT_SAVINGS_PRODUCT_CODES,
+  isSimpleSavingsProduct,
+  SavingsAccountSelector,
+} from "@/components/members/SavingsAccountSelector";
 
 const memberSchema = z.object({
   first_name: z.string().min(2, "First name must be at least 2 characters"),
@@ -60,7 +66,9 @@ const NewMember = () => {
   const [familySizeMaleInput, setFamilySizeMaleInput] = useState<string>("0");
   const [workExperienceInput, setWorkExperienceInput] = useState<string>("");
   const [monthlyIncomeInput, setMonthlyIncomeInput] = useState<string>("");
-  const [sharesRequestedInput, setSharesRequestedInput] = useState<string>("0");
+  const [sharesRequestedInput, setSharesRequestedInput] = useState<string>("10");
+  const [selectedAccountProductCodes, setSelectedAccountProductCodes] = useState<string[]>([]);
+  const accountDefaultsInitializedRef = useRef(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -86,7 +94,7 @@ const NewMember = () => {
       address_area_name: "",
       address_house_no: "",
       national_id_number: "",
-      shares_requested: "0",
+      shares_requested: "10",
       terms_accepted: false,
       member_type: "GOV_EMP",
       monthly_income: "",
@@ -103,6 +111,22 @@ const NewMember = () => {
   });
 
   const memberType = form.watch("member_type");
+  const { data: accountProducts = [] } = useAccountProducts(Boolean(user));
+
+  useEffect(() => {
+    if (accountDefaultsInitializedRef.current || accountProducts.length === 0) return;
+    const availableDefaults = DEFAULT_SAVINGS_PRODUCT_CODES.filter((code) =>
+      accountProducts.some((product) => product.product_code === code && isSimpleSavingsProduct(product))
+    );
+    accountDefaultsInitializedRef.current = true;
+    setSelectedAccountProductCodes(availableDefaults);
+  }, [accountProducts]);
+
+  const handleAccountProductSelectionChange = (productCodes: string[]) => {
+    // Once the officer changes the selection, never reapply defaults over that choice.
+    accountDefaultsInitializedRef.current = true;
+    setSelectedAccountProductCodes(productCodes);
+  };
 
   // Password generator function
   const generatePassword = () => {
@@ -178,6 +202,7 @@ const NewMember = () => {
         monthly_income: Number(data.monthly_income),
         tin_number: data.tin_number && data.tin_number.trim() !== "" ? data.tin_number : null,
         password: data.password,
+        account_product_codes: selectedAccountProductCodes,
       };
 
       // Create member
@@ -924,6 +949,12 @@ const NewMember = () => {
                   </div>
                 </div>
 
+                <SavingsAccountSelector
+                  products={accountProducts}
+                  selectedCodes={selectedAccountProductCodes}
+                  onSelectedCodesChange={handleAccountProductSelectionChange}
+                />
+
                 {/* Terms and Conditions */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold">Declaration</h3>
@@ -959,9 +990,9 @@ const NewMember = () => {
                 </div>
 
                 <div className="flex gap-4 pt-4">
-                  <Button type="submit" className="flex-1">
+                  <Button type="submit" className="flex-1" disabled={form.formState.isSubmitting}>
                     <UserPlus className="mr-2 h-4 w-4" />
-                    Create Member
+                    {form.formState.isSubmitting ? "Creating Member..." : "Create Member"}
                   </Button>
                   <Button
                     type="button"

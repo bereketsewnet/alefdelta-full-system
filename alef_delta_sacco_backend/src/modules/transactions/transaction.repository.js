@@ -3,8 +3,9 @@ import { query } from '../../core/db.js';
 export async function insertTransaction(payload, connection) {
   await connection.execute(
     `INSERT INTO transactions
-    (txn_id, account_id, txn_type, amount, balance_after, reference, receipt_photo_url, performed_by, idempotency_key, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    (txn_id, account_id, txn_type, amount, balance_after, reference, receipt_photo_url,
+     bank_receipt_no, bank_receipt_photo_url, remark, performed_by, idempotency_key, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       payload.txn_id,
       payload.account_id,
@@ -13,6 +14,9 @@ export async function insertTransaction(payload, connection) {
       payload.balance_after,
       payload.reference,
       payload.receipt_photo_url,
+      payload.bank_receipt_no || null,
+      payload.bank_receipt_photo_url || null,
+      payload.remark || null,
       payload.performed_by,
       payload.idempotency_key
     ]
@@ -62,6 +66,9 @@ export async function listTransactions(filters = {}) {
       t.balance_after,
       t.reference,
       t.receipt_photo_url,
+      t.bank_receipt_no,
+      t.bank_receipt_photo_url,
+      t.remark,
       t.performed_by,
       t.created_at,
       t.idempotency_key,
@@ -92,6 +99,13 @@ export async function updateTransactionReceipt(txnId, receiptPhotoUrl) {
   await query(
     'UPDATE transactions SET receipt_photo_url = ? WHERE txn_id = ?',
     [receiptPhotoUrl, txnId]
+  );
+}
+
+export async function updateTransactionBankReceipt(txnId, bankReceiptPhotoUrl) {
+  await query(
+    'UPDATE transactions SET bank_receipt_photo_url = ? WHERE txn_id = ?',
+    [bankReceiptPhotoUrl, txnId]
   );
 }
 
@@ -137,12 +151,16 @@ export async function listTransactionsByMember(memberId, filters = {}) {
     const sql = `(
       SELECT 
         t.txn_id as id,
+        t.txn_id,
         t.account_id,
         t.txn_type,
         t.amount,
         t.balance_after,
         t.reference,
         t.receipt_photo_url,
+        t.bank_receipt_no,
+        t.bank_receipt_photo_url,
+        t.remark,
         t.performed_by,
         t.created_at,
         t.idempotency_key,
@@ -162,12 +180,16 @@ export async function listTransactionsByMember(memberId, filters = {}) {
     (
       SELECT 
         lr.repayment_id as id,
+        lr.repayment_id as txn_id,
         NULL as account_id,
         'LOAN_REPAYMENT' as txn_type,
         lr.amount_paid as amount,
         lr.balance_after as balance_after,
         lr.receipt_no as reference,
         lr.receipt_photo_url,
+        lr.bank_receipt_no,
+        lr.bank_receipt_photo_url,
+        lr.notes as remark,
         lr.performed_by,
         lr.created_at,
         lr.idempotency_key,
@@ -202,4 +224,3 @@ export async function listTransactionsByMember(memberId, filters = {}) {
     throw error;
   }
 }
-

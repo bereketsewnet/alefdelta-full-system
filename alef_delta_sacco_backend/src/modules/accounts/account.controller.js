@@ -1,5 +1,5 @@
 import httpError from '../../core/utils/httpError.js';
-import { createAccountSchema, updateAccountSchema } from './account.validators.js';
+import { createAccountSchema, updateAccountSchema, ensureSavingsAccountsSchema } from './account.validators.js';
 import {
   getAccounts,
   getAccountById,
@@ -9,7 +9,8 @@ import {
   closeAccount,
   freezeAccount,
   unfreezeAccount,
-  deleteAccount
+  deleteAccount,
+  ensureMemberSavingsAccounts
 } from './account.service.js';
 
 function validate(schema, payload) {
@@ -59,8 +60,22 @@ export async function handleGetMemberAccounts(req, res, next) {
 export async function handleCreateAccount(req, res, next) {
   try {
     const payload = validate(createAccountSchema, req.body);
-    const account = await createAccount(payload);
+    const account = await createAccount(payload, req.user);
     res.status(201).json(account);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function handleEnsureMemberSavingsAccounts(req, res, next) {
+  try {
+    const payload = validate(ensureSavingsAccountsSchema, req.body || {});
+    const result = await ensureMemberSavingsAccounts(
+      req.params.memberId,
+      payload.product_codes,
+      req.user
+    );
+    res.json(result);
   } catch (error) {
     next(error);
   }
