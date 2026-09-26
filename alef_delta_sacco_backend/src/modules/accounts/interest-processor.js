@@ -83,6 +83,7 @@ export async function processMonthlyInterest() {
     WHERE a.status = 'ACTIVE'
     AND ap.is_active = 1
     AND ap.interest_method = 'STANDARD'
+    AND ap.financial_category <> 'SHARE_CAPITAL'
     AND ap.interest_rate > 0
     AND (a.last_interest_date IS NULL OR a.last_interest_date < ?)
   `, [firstOfMonth.format('YYYY-MM-DD')]);

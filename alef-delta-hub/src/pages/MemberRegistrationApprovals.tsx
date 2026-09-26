@@ -479,7 +479,7 @@ const MemberRegistrationApprovals = () => {
                         </p>
                       </div>
                       <div>
-                        <Label>Shares Requested</Label>
+                        <Label>Declared Share Intention (Historical / Informational)</Label>
                         <p>{selectedRequest.member_data.shares_requested || 0}</p>
                       </div>
                     </div>
@@ -617,4 +617,3 @@ const MemberRegistrationApprovals = () => {
 };
 
 export default MemberRegistrationApprovals;
-

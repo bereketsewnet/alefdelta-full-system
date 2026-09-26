@@ -118,11 +118,9 @@ After starting, access the services at:
 | **API Docs** | http://localhost:4001/api-docs | Swagger documentation |
 | **Adminer** | http://localhost:8082 | Database management GUI |
 
-### Default Credentials
+### Administrator Bootstrap
 
-**Admin User:**
-- Email: `admin@alefdelta.com`
-- Password: `Admin@123`
+No default production password is documented or committed. Administrator bootstrap reads the private environment configuration, and the initial password must be rotated immediately.
 
 To seed the admin user:
 ```bash
@@ -379,6 +377,3 @@ Proprietary - ALEF-DELTA SACCO
 ---
 
 **Built with ❤️ for ALEF-DELTA SACCO**
-
- to remove unnessery cash
- sudo docker system prune -a --volumes -f

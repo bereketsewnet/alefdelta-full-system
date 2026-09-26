@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { CheckCircle, XCircle, Clock, Search, Eye, Image as ImageIcon } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { CurrencyDisplay } from "@/components/shared/CurrencyDisplay";
@@ -43,10 +43,16 @@ interface DepositRequest {
   account_product_code?: string;
   approver_username?: string;
   approver_role?: string;
+  quoted_share_price?: number;
+  quoted_share_units?: number;
 }
 
 const DepositApprovals = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const shareMode = location.pathname.includes('share-purchase-approvals');
+  const requestLabel = shareMode ? 'Share Purchase' : 'Deposit';
+  const requestEndpoint = shareMode ? '/shares/requests' : '/deposit-requests';
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [user, setUser] = useState<User | null>(null);
@@ -56,6 +62,7 @@ const DepositApprovals = () => {
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const debouncedSearch = useDebounce(searchQuery, 300);
+  const canManageRequests = !!user && ['ADMIN', 'TELLER', 'MANAGER'].includes(user.role);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
@@ -68,14 +75,14 @@ const DepositApprovals = () => {
 
   // Fetch all deposit requests
   const { data: allRequests } = useQuery({
-    queryKey: ['deposit-requests', statusFilter],
+    queryKey: [shareMode ? 'share-purchase-requests' : 'deposit-requests', statusFilter],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (statusFilter && statusFilter !== 'ALL') {
         params.append('status', statusFilter);
       }
       const queryString = params.toString();
-      const res = await api.get<{ data: DepositRequest[] }>(`/deposit-requests${queryString ? '?' + queryString : ''}`);
+      const res = await api.get<{ data: DepositRequest[] }>(`${requestEndpoint}${queryString ? '?' + queryString : ''}`);
       return res.data.data || [];
     },
     enabled: !!user
@@ -108,16 +115,17 @@ const DepositApprovals = () => {
       setProcessingRequestId(requestId);
       toast({ 
         title: "Processing...", 
-        description: "Approving deposit request. This may take 1-2 minutes. Please wait...",
+        description: `Approving ${requestLabel.toLowerCase()} request. Please wait...`,
         duration: 3000
       });
-      return api.post(`/deposit-requests/${requestId}/approve`);
+      return api.post(`${requestEndpoint}/${requestId}/approve`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposit-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['share-purchase-requests'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-requests-pending-count'] });
-      toast({ title: "Success", description: "Deposit request approved successfully" });
+      toast({ title: "Success", description: `${requestLabel} request approved successfully` });
       setSelectedRequest(null);
       setProcessingRequestId(null);
     },
@@ -134,12 +142,13 @@ const DepositApprovals = () => {
   const rejectMutation = useMutation({
     mutationFn: async ({ requestId, reason }: { requestId: string; reason: string }) => {
       setProcessingRequestId(requestId);
-      return api.post(`/deposit-requests/${requestId}/reject`, { reason });
+      return api.post(`${requestEndpoint}/${requestId}/reject`, { reason });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposit-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['share-purchase-requests'] });
       queryClient.invalidateQueries({ queryKey: ['deposit-requests-pending-count'] });
-      toast({ title: "Success", description: "Deposit request rejected" });
+      toast({ title: "Success", description: `${requestLabel} request rejected` });
       setShowRejectDialog(false);
       setSelectedRequest(null);
       setRejectionReason('');
@@ -157,7 +166,7 @@ const DepositApprovals = () => {
 
   const handleApprove = (request: DepositRequest) => {
     if (processingRequestId === request.request_id) return; // Prevent double-click
-    if (confirm(`Are you sure you want to approve this deposit request of ETB ${request.amount.toLocaleString()}?`)) {
+    if (confirm(`Approve this ${requestLabel.toLowerCase()} request of ETB ${request.amount.toLocaleString()}?${shareMode ? ` It will post ${request.quoted_share_units} units at the frozen ETB ${request.quoted_share_price} price.` : ''}`)) {
       approveMutation.mutate(request.request_id);
     }
   };
@@ -295,7 +304,7 @@ const DepositApprovals = () => {
         
         return (
           <div className="flex gap-2">
-            {req.status === 'PENDING' && (
+            {req.status === 'PENDING' && canManageRequests && (
               <>
                 <Button
                   variant="default"
@@ -355,8 +364,10 @@ const DepositApprovals = () => {
   return (
     <div className="min-h-screen bg-background">
       <ModernHeader
-        title="Deposit Request Approvals"
-        subtitle="Review and approve member deposit requests"
+        title={`${requestLabel} Requests`}
+        subtitle={canManageRequests
+          ? `Review and approve member ${requestLabel.toLowerCase()} requests`
+          : `Read-only review of member ${requestLabel.toLowerCase()} requests`}
         onBack={() => navigate("/dashboard")}
       />
       
@@ -436,16 +447,16 @@ const DepositApprovals = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Deposit Requests</CardTitle>
+            <CardTitle>{requestLabel} Requests</CardTitle>
             <CardDescription>
-              All deposit requests ({filteredRequests.length} request{filteredRequests.length !== 1 ? 's' : ''})
+              All {requestLabel.toLowerCase()} requests ({filteredRequests.length} request{filteredRequests.length !== 1 ? 's' : ''})
             </CardDescription>
           </CardHeader>
           <CardContent>
             <DataTable
               data={filteredRequests}
               columns={columns}
-              emptyMessage="No deposit requests found with the selected filter"
+              emptyMessage={`No ${requestLabel.toLowerCase()} requests found with the selected filter`}
             />
           </CardContent>
         </Card>
@@ -454,7 +465,7 @@ const DepositApprovals = () => {
         <Dialog open={!!selectedRequest && !showRejectDialog} onOpenChange={() => setSelectedRequest(null)}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Deposit Request Details</DialogTitle>
+              <DialogTitle>{requestLabel} Request Details</DialogTitle>
               <DialogDescription>
                 Request ID: {selectedRequest?.request_id}
               </DialogDescription>
@@ -485,6 +496,10 @@ const DepositApprovals = () => {
                     <Label className="text-muted-foreground">Account</Label>
                     <p className="font-medium">{selectedRequest.account_product_code}</p>
                   </div>
+                  {shareMode && <>
+                    <div><Label className="text-muted-foreground">Frozen Share Price</Label><p className="font-medium">ETB {Number(selectedRequest.quoted_share_price || 0).toFixed(2)}</p></div>
+                    <div><Label className="text-muted-foreground">Fractional Units</Label><p className="font-mono font-medium">{Number(selectedRequest.quoted_share_units || 0).toFixed(8)}</p></div>
+                  </>}
                   {selectedRequest.reference_number && (
                     <div>
                       <Label className="text-muted-foreground">Reference Number</Label>
@@ -551,7 +566,7 @@ const DepositApprovals = () => {
                   </div>
                 )}
                 
-                {selectedRequest.status === 'PENDING' && (
+                {selectedRequest.status === 'PENDING' && canManageRequests && (
                   <div className="flex gap-2 pt-4">
                     <Button
                       variant="default"
@@ -602,9 +617,9 @@ const DepositApprovals = () => {
         <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Reject Deposit Request</DialogTitle>
+              <DialogTitle>Reject {requestLabel} Request</DialogTitle>
               <DialogDescription>
-                Please provide a reason for rejecting this deposit request.
+                Please provide a reason for rejecting this {requestLabel.toLowerCase()} request.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -666,4 +681,3 @@ const DepositApprovals = () => {
 };
 
 export default DepositApprovals;
-

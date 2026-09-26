@@ -1,0 +1,58 @@
+{
+  "captured_at": "2026-09-22T08:47:39.339Z",
+  "database": "alef_delta_sacco",
+  "migration_49_schema_present": false,
+  "entity_counts": {
+    "members": 148,
+    "accounts": 296,
+    "transactions": 121,
+    "loan_applications": 0
+  },
+  "balances_by_product": [
+    {
+      "product_code": "SAV_COMPULSORY",
+      "account_count": 148,
+      "total_balance": "105300.00"
+    },
+    {
+      "product_code": "SAV_VOLUNTARY",
+      "account_count": 148,
+      "total_balance": "2471800.00"
+    }
+  ],
+  "master_account": [
+    {
+      "account_key": "ETB_MASTER",
+      "currency": "ETB",
+      "balance": "147000.00",
+      "version": 148
+    }
+  ],
+  "master_ledger": {
+    "entry_count": 147,
+    "total_inflows": "147000.00",
+    "total_outflows": "0.00"
+  },
+  "attachments": {
+    "files": 357,
+    "bytes": 54344400
+  },
+  "share_capital": {
+    "product": null,
+    "active_account_count": 0,
+    "missing_account_count": 148,
+    "duplicate_member_count": 0,
+    "nonzero_account_count": 0,
+    "nonzero_without_ledger_count": 0,
+    "ledger": {
+      "entry_count": 0,
+      "net_units": "0.00000000",
+      "purchase_amount": "0.00",
+      "redemption_amount": "0.00"
+    }
+  },
+  "warnings": [
+    "SHR_CAP product is absent and will be created by migration 49 with a zero opening balance"
+  ],
+  "blockers": []
+}

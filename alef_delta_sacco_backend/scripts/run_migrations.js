@@ -60,6 +60,8 @@ export async function runMigrations() {
   const files = (await fs.readdir(migrationsDir))
     .filter((file) => file.endsWith('.sql'))
     .sort();
+  const onlyArgument = process.argv.find((argument) => argument.startsWith('--only='));
+  const onlyMigration = onlyArgument?.slice('--only='.length) || null;
   
   if (files.length === 0) {
     throw new Error(`No SQL migration files found in ${migrationsDir}`);
@@ -75,11 +77,22 @@ export async function runMigrations() {
     // Get already applied migrations
     const appliedMigrations = await getAppliedMigrations(connection);
     console.log(`📊 Already applied: ${appliedMigrations.size} migration(s)`);
+
+    if (onlyMigration) {
+      const targetIndex = files.indexOf(onlyMigration);
+      if (targetIndex < 0) throw new Error(`Requested migration does not exist: ${onlyMigration}`);
+      const missingPredecessors = files.slice(0, targetIndex).filter((file) => !appliedMigrations.has(file));
+      if (missingPredecessors.length) {
+        throw new Error(`Cannot run only ${onlyMigration}; earlier migrations are not recorded as applied: ${missingPredecessors.join(', ')}`);
+      }
+      console.log(`🎯 Restricted to one migration: ${onlyMigration}`);
+    }
     
     let appliedCount = 0;
     let skippedCount = 0;
     
-    for (const file of files) {
+    const selectedFiles = onlyMigration ? [onlyMigration] : files;
+    for (const file of selectedFiles) {
       if (appliedMigrations.has(file)) {
         console.log(`⏭️  Skipping (already applied): ${file}`);
         skippedCount++;
@@ -97,7 +110,7 @@ export async function runMigrations() {
     console.log(`\n📈 Migration summary:`);
     console.log(`   - Applied: ${appliedCount}`);
     console.log(`   - Skipped: ${skippedCount}`);
-    console.log(`   - Total:   ${files.length}`);
+    console.log(`   - Total considered: ${selectedFiles.length}`);
   } catch (error) {
     console.error(`❌ Error in migration: ${error.message}`);
     throw error;
@@ -119,4 +132,3 @@ if (process.argv[1] && process.argv[1].includes('run_migrations.js')) {
       process.exit(1);
     });
 }
-

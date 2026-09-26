@@ -51,7 +51,7 @@ DB_HOST=mysql
 DB_PORT=3306
 DB_NAME=alef_delta_sacco
 DB_USER=alefdelta_admin
-DB_PASSWORD=~HNiBgmo56wag~y3
+DB_PASSWORD=use-a-strong-secret-from-the-private-production-env
 
 # JWT Configuration
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
@@ -128,9 +128,7 @@ Seed admin user:
 docker-compose exec api npm run seed:admin
 ```
 
-Default admin credentials:
-- Email: `admin@alefdelta.com`
-- Password: `Admin@123`
+There are no documented default production credentials. The seed command reads the private environment configuration; rotate the initial password immediately.
 
 ### 7. Test Services
 
@@ -245,7 +243,7 @@ docker-compose exec -T mysql mysql -u root -p alef_delta_sacco < backup.sql
    - System: `MySQL`
    - Server: `mysql`
    - Username: `alefdelta_admin`
-   - Password: `~HNiBgmo56wag~y3`
+   - Password: use the value from the private production environment
    - Database: `alef_delta_sacco`
 
 ## 🔐 Security Checklist
@@ -512,4 +510,3 @@ For deployment issues:
 
 **Last Updated**: December 2025
 **Version**: 1.0.0
-

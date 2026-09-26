@@ -14,6 +14,7 @@ import { query, execute, withTransaction } from '../../core/db.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
 
 export const DEFAULT_MEMBER_SAVINGS_PRODUCT_CODES = ['SAV_VOLUNTARY', 'SAV_COMPULSORY'];
+export const DEFAULT_SHARE_PRODUCT_CODE = 'SHR_CAP';
 
 function parseMetadata(raw) {
   if (!raw) return null;
@@ -258,6 +259,42 @@ export async function ensureMemberSavingsAccounts(memberId, productCodes, actor 
   return { ...result, accounts: await getAccountsForMember(memberId) };
 }
 
+export async function ensureMemberShareAccount(memberId, actor = null, existingConnection = null) {
+  const ensure = async (connection) => {
+    const member = await findMemberById(memberId, connection, true);
+    if (!member) throw httpError(404, 'Member not found');
+    const [products] = await connection.query(`SELECT * FROM account_products
+      WHERE product_code = ? AND is_active = 1 AND financial_category = 'SHARE_CAPITAL'`, [DEFAULT_SHARE_PRODUCT_CODE]);
+    if (!products[0]) throw httpError(409, 'The active SHR_CAP Share Capital product is missing');
+    const [existing] = await connection.query(`SELECT account_id FROM accounts
+      WHERE member_id = ? AND product_code = ? AND status <> 'CLOSED'`, [memberId, DEFAULT_SHARE_PRODUCT_CODE]);
+    if (existing.length > 1) throw httpError(409, 'Member has multiple active Share Capital accounts');
+    if (existing[0]) return { created: false, account_id: existing[0].account_id };
+    const accountId = uuid();
+    await createAccountRepo({
+      account_id: accountId,
+      member_id: memberId,
+      product_code: DEFAULT_SHARE_PRODUCT_CODE,
+      currency: 'ETB',
+      balance: 0,
+      lien_amount: 0,
+      metadata: null,
+      interest_method: 'PROFIT_SHARING',
+      status: 'ACTIVE'
+    }, connection);
+    await insertAuditLog({
+      userId: actor?.userId || null,
+      action: 'CREATE_MEMBER_SHARE_ACCOUNT',
+      entity: 'accounts',
+      entityId: accountId,
+      metadata: { member_id: memberId, product_code: DEFAULT_SHARE_PRODUCT_CODE, opening_balance: '0.00', opening_units: '0.00000000' },
+      connection
+    });
+    return { created: true, account_id: accountId };
+  };
+  return existingConnection ? ensure(existingConnection) : withTransaction(ensure);
+}
+
 export async function updateAccount(accountId, payload) {
   const account = await findAccountById(accountId);
   if (!account) {
@@ -267,6 +304,18 @@ export async function updateAccount(accountId, payload) {
   // Cannot modify closed accounts
   if (account.status === 'CLOSED') {
     throw httpError(400, 'Cannot modify closed account');
+  }
+
+  if (account.product_code === DEFAULT_SHARE_PRODUCT_CODE) {
+    if (payload.product_code && payload.product_code !== DEFAULT_SHARE_PRODUCT_CODE) {
+      throw httpError(400, 'The dedicated Share Capital account cannot be changed to another product');
+    }
+    if (payload.status === 'CLOSED') {
+      throw httpError(400, 'The dedicated Share Capital account cannot be closed; freeze it when transactions must be stopped');
+    }
+  }
+  if (payload.product_code === DEFAULT_SHARE_PRODUCT_CODE && account.product_code !== DEFAULT_SHARE_PRODUCT_CODE) {
+    throw httpError(400, 'A savings account cannot be converted into Share Capital; use the member’s dedicated SHR_CAP account');
   }
   
   // Validate product_code change
@@ -323,6 +372,9 @@ export async function closeAccount(accountId) {
   if (account.status === 'CLOSED') {
     throw httpError(400, 'Account is already closed');
   }
+  if (account.product_code === DEFAULT_SHARE_PRODUCT_CODE) {
+    throw httpError(400, 'The dedicated Share Capital account cannot be closed; freeze it when transactions must be stopped');
+  }
   
   const balance = Number(account.balance);
   if (balance !== 0) {
@@ -370,6 +422,9 @@ export async function deleteAccount(accountId) {
   const account = await findAccountById(accountId);
   if (!account) {
     throw httpError(404, 'Account not found');
+  }
+  if (account.product_code === DEFAULT_SHARE_PRODUCT_CODE) {
+    throw httpError(400, 'The dedicated Share Capital account cannot be deleted');
   }
   
   if (account.status !== 'CLOSED') {

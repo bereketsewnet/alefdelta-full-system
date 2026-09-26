@@ -4,6 +4,7 @@ import httpError from '../../core/utils/httpError.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
 import { addisAbabaDate, allocateLargestRemainder, centsToEtb, etbToCents } from './money.js';
 import { getMasterSummary, listMasterLedger, createManualAdjustment, postMasterEntry } from './master-ledger.js';
+import { microsToUnits, unitsToMicros } from '../shares/share-money.js';
 
 export { getMasterSummary, listMasterLedger, createManualAdjustment };
 
@@ -167,7 +168,7 @@ function getPolicySnapshot(policy) {
   };
 }
 
-async function loadPeriodMemberBalances(connection, periodEnd, policy, sharePriceCents) {
+async function loadPeriodMemberBalances(connection, periodEnd, policy) {
   const accountRows = await runQuery(connection,
     `SELECT m.member_id, m.membership_no, m.first_name, m.middle_name, m.last_name,
             a.account_id, a.product_code, a.balance, ap.financial_category,
@@ -190,6 +191,9 @@ async function loadPeriodMemberBalances(connection, periodEnd, policy, sharePric
     payoutAccounts.set(row.member_id, row.account_id);
   }
   const eligibleSavings = new Set(policy.buckets.filter((b) => b.allocation_basis === 'SAVINGS_BALANCE').flatMap((b) => b.eligible_products));
+  const shareUnitRows = await runQuery(connection, `SELECT member_id, COALESCE(SUM(unit_delta),0) share_units
+    FROM share_unit_entries WHERE effective_at < DATE_ADD(?, INTERVAL 1 DAY) GROUP BY member_id`, [periodEnd]);
+  const shareUnitsByMember = new Map(shareUnitRows.map((row) => [row.member_id, unitsToMicros(row.share_units)]));
   const members = new Map();
   for (const row of accountRows) {
     if (!members.has(row.member_id)) members.set(row.member_id, {
@@ -197,6 +201,7 @@ async function loadPeriodMemberBalances(connection, periodEnd, policy, sharePric
       membership_no: row.membership_no,
       member_name: [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' '),
       share_balance_cents: 0n,
+      share_units: shareUnitsByMember.get(row.member_id) || 0n,
       savings_balance_cents: 0n,
       payout_account_id: payoutAccounts.get(row.member_id) || null
     });
@@ -207,13 +212,13 @@ async function loadPeriodMemberBalances(connection, periodEnd, policy, sharePric
     if (row.financial_category === 'SHARE_CAPITAL') member.share_balance_cents += positive;
     if (eligibleSavings.has(row.product_code)) member.savings_balance_cents += positive;
   }
-  return [...members.values()].map((member) => ({ ...member, share_units: member.share_balance_cents / sharePriceCents }));
+  return [...members.values()];
 }
 
 function calculateMemberAllocations(members, shareBucketCents, savingsBucketCents) {
   const shareWeights = members.filter((m) => m.share_units > 0n).map((m) => ({ id: m.member_id, weight: m.share_units }));
   const savingsWeights = members.filter((m) => m.savings_balance_cents > 0n).map((m) => ({ id: m.member_id, weight: m.savings_balance_cents }));
-  if (shareBucketCents > 0n && !shareWeights.length) throw httpError(409, 'Profit distribution cannot be generated because the total full-share count is zero');
+  if (shareBucketCents > 0n && !shareWeights.length) throw httpError(409, 'Profit distribution cannot be generated because the total fractional-share count is zero');
   if (savingsBucketCents > 0n && !savingsWeights.length) throw httpError(409, 'Profit distribution cannot be generated because eligible savings balances total zero');
   const shareAmounts = shareBucketCents > 0n ? allocateLargestRemainder(shareBucketCents, shareWeights) : new Map();
   const savingsAmounts = savingsBucketCents > 0n ? allocateLargestRemainder(savingsBucketCents, savingsWeights) : new Map();
@@ -231,6 +236,18 @@ export async function generateDistribution(payload, actor) {
   if (payload.period_end < payload.period_start) throw httpError(400, 'period_end cannot be before period_start');
   return withTransaction(async (connection) => {
     await connection.query("SELECT * FROM sacco_master_account WHERE account_key = 'ETB_MASTER' FOR UPDATE");
+    const [shareMismatches] = await connection.query(`SELECT a.account_id
+      FROM accounts a
+      JOIN account_products ap ON ap.product_code = a.product_code
+      LEFT JOIN share_unit_entries se ON se.account_id = a.account_id
+      WHERE ap.financial_category = 'SHARE_CAPITAL'
+      GROUP BY a.account_id, a.balance, a.share_unit_balance
+      HAVING a.balance <> COALESCE(SUM(CASE WHEN se.entry_type = 'PURCHASE' THEN se.amount ELSE -se.amount END),0)
+        OR a.share_unit_balance <> COALESCE(SUM(se.unit_delta),0)
+      LIMIT 1`);
+    if (shareMismatches[0]) {
+      throw httpError(409, 'Profit distribution is blocked because a Share Capital account does not reconcile with the append-only share ledger');
+    }
     const [overlapRows] = await connection.query(
       `SELECT distribution_id FROM profit_distributions
        WHERE status <> 'VOID' AND period_start <= ? AND period_end >= ? LIMIT 1`,
@@ -259,7 +276,7 @@ export async function generateDistribution(payload, actor) {
     const shareBucketCents = policy.buckets.filter((b) => b.is_member_payable && b.allocation_basis === 'SHARE_UNITS').reduce((sum, b) => sum + (bucketAmounts.get(b.bucket_code) || 0n), 0n);
     const savingsBucketCents = policy.buckets.filter((b) => b.is_member_payable && b.allocation_basis === 'SAVINGS_BALANCE').reduce((sum, b) => sum + (bucketAmounts.get(b.bucket_code) || 0n), 0n);
     const internalCents = policy.buckets.filter((b) => !b.is_member_payable).reduce((sum, b) => sum + (bucketAmounts.get(b.bucket_code) || 0n), 0n);
-    const members = await loadPeriodMemberBalances(connection, payload.period_end, policy, sharePriceCents);
+    const members = await loadPeriodMemberBalances(connection, payload.period_end, policy);
     const memberAllocations = calculateMemberAllocations(members, shareBucketCents, savingsBucketCents);
     const totalShareUnits = memberAllocations.reduce((sum, member) => sum + member.share_units, 0n);
     const totalSavingsCents = memberAllocations.reduce((sum, member) => sum + member.savings_balance_cents, 0n);
@@ -273,7 +290,7 @@ export async function generateDistribution(payload, actor) {
        VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [distributionId, policy.policy_id, payload.period_start, payload.period_end, centsToEtb(inflowCents), centsToEtb(outflowCents), centsToEtb(netCents),
         centsToEtb(bucketAmounts.get('__RESERVE__')), centsToEtb(shareBucketCents + savingsBucketCents), centsToEtb(internalCents),
-        centsToEtb(sharePriceCents), totalShareUnits.toString(), centsToEtb(totalSavingsCents), JSON.stringify(snapshot), actor.userId]
+        centsToEtb(sharePriceCents), microsToUnits(totalShareUnits), centsToEtb(totalSavingsCents), JSON.stringify(snapshot), actor.userId]
     );
     for (const bucket of policy.buckets) await connection.execute(
       `INSERT INTO profit_distribution_allocations
@@ -286,7 +303,7 @@ export async function generateDistribution(payload, actor) {
        (member_allocation_id, distribution_id, member_id, share_balance, calculated_share_units,
         eligible_savings_balance, share_dividend_amount, savings_dividend_amount, total_payout_amount, payout_account_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uuid(), distributionId, member.member_id, centsToEtb(member.share_balance_cents), member.share_units.toString(), centsToEtb(member.savings_balance_cents),
+      [uuid(), distributionId, member.member_id, centsToEtb(member.share_balance_cents), microsToUnits(member.share_units), centsToEtb(member.savings_balance_cents),
         centsToEtb(member.share_dividend_cents), centsToEtb(member.savings_dividend_cents), centsToEtb(member.total_payout_cents), member.payout_account_id]
     );
     await insertAuditLog({ userId: actor.userId, action: 'GENERATE_PROFIT_DISTRIBUTION', entity: 'profit_distributions', entityId: distributionId, metadata: { period_start: payload.period_start, period_end: payload.period_end, net_profit: centsToEtb(netCents) }, connection });
@@ -299,7 +316,9 @@ function mapDistribution(row) {
   const monetary = ['total_inflows','total_outflows','net_profit','reserve_amount','member_payout_amount','retained_allocation_amount','share_price','total_eligible_savings'];
   const mapped = { ...row };
   for (const key of monetary) mapped[key] = money(row[key]);
-  mapped.total_share_units = Number(row.total_share_units || 0);
+  // Keep eight-decimal ownership values as strings at the API boundary so
+  // JavaScript floating-point conversion cannot alter dividend weights.
+  mapped.total_share_units = String(row.total_share_units || '0.00000000');
   mapped.version = Number(row.version || 0);
   if (typeof mapped.policy_snapshot === 'string') mapped.policy_snapshot = JSON.parse(mapped.policy_snapshot);
   return mapped;
@@ -321,7 +340,7 @@ export async function getDistributionById(distributionId, connection = null) {
   return {
     ...mapDistribution(rows[0]),
     allocations: allocations.map((row) => ({ ...row, percentage_bps: Number(row.percentage_bps), is_member_payable: Boolean(row.is_member_payable), allocated_amount: money(row.allocated_amount) })),
-    members: members.map((row) => ({ ...row, share_balance: money(row.share_balance), calculated_share_units: Number(row.calculated_share_units), override_share_units: row.override_share_units === null ? null : Number(row.override_share_units), eligible_savings_balance: money(row.eligible_savings_balance), share_dividend_amount: money(row.share_dividend_amount), savings_dividend_amount: money(row.savings_dividend_amount), total_payout_amount: money(row.total_payout_amount) })),
+    members: members.map((row) => ({ ...row, share_balance: money(row.share_balance), calculated_share_units: String(row.calculated_share_units), override_share_units: row.override_share_units === null ? null : String(row.override_share_units), eligible_savings_balance: money(row.eligible_savings_balance), share_dividend_amount: money(row.share_dividend_amount), savings_dividend_amount: money(row.savings_dividend_amount), total_payout_amount: money(row.total_payout_amount) })),
     votes: votes.map((row) => ({ ...row, rejection_resolved: Boolean(row.rejection_resolved) }))
   };
 }
@@ -339,12 +358,12 @@ async function recalculateShareAllocations(distributionId, connection) {
     WHERE distribution_id = ? AND is_member_payable = 1 AND allocation_basis = 'SHARE_UNITS'`, [distributionId]);
   const [members] = await connection.query(`SELECT member_id, calculated_share_units, override_share_units,
     savings_dividend_amount FROM profit_distribution_member_allocations WHERE distribution_id = ? FOR UPDATE`, [distributionId]);
-  const weighted = members.map((member) => ({ id: member.member_id, weight: BigInt(member.override_share_units ?? member.calculated_share_units) })).filter((member) => member.weight > 0n);
-  if (!weighted.length) throw httpError(409, 'At least one full share is required after overrides');
+  const weighted = members.map((member) => ({ id: member.member_id, weight: unitsToMicros(member.override_share_units ?? member.calculated_share_units) })).filter((member) => member.weight > 0n);
+  if (!weighted.length) throw httpError(409, 'At least one fractional share is required after overrides');
   const amounts = allocateLargestRemainder(etbToCents(bucketRows[0].amount), weighted);
   let totalUnits = 0n;
   for (const member of members) {
-    const units = BigInt(member.override_share_units ?? member.calculated_share_units);
+    const units = unitsToMicros(member.override_share_units ?? member.calculated_share_units);
     totalUnits += units;
     const shareCents = amounts.get(member.member_id) || 0n;
     const savingsCents = etbToCents(member.savings_dividend_amount);
@@ -352,13 +371,14 @@ async function recalculateShareAllocations(distributionId, connection) {
       SET share_dividend_amount = ?, total_payout_amount = ? WHERE distribution_id = ? AND member_id = ?`,
     [centsToEtb(shareCents), centsToEtb(shareCents + savingsCents), distributionId, member.member_id]);
   }
-  await connection.execute('UPDATE profit_distributions SET total_share_units = ?, version = version + 1 WHERE distribution_id = ?', [totalUnits.toString(), distributionId]);
+  await connection.execute('UPDATE profit_distributions SET total_share_units = ?, version = version + 1 WHERE distribution_id = ?', [microsToUnits(totalUnits), distributionId]);
 }
 
 export async function overrideMemberShares(distributionId, memberId, payload, actor) {
-  const units = Number(payload.share_units);
+  let unitMicros;
+  try { unitMicros = unitsToMicros(payload.share_units); } catch (_error) { throw httpError(400, 'share_units must be a non-negative value with at most eight decimal places'); }
+  const units = microsToUnits(unitMicros);
   const reason = String(payload.reason || '').trim();
-  if (!Number.isSafeInteger(units) || units < 0) throw httpError(400, 'share_units must be a non-negative whole number');
   if (reason.length < 10) throw httpError(400, 'An override reason of at least 10 characters is required');
   return withTransaction(async (connection) => {
     const [distributions] = await connection.query('SELECT * FROM profit_distributions WHERE distribution_id = ? FOR UPDATE', [distributionId]);
@@ -369,7 +389,7 @@ export async function overrideMemberShares(distributionId, memberId, payload, ac
     await connection.execute(`UPDATE profit_distribution_member_allocations SET override_share_units = ?, share_override_reason = ?,
       share_overridden_by = ?, share_overridden_at = NOW() WHERE distribution_id = ? AND member_id = ?`, [units, reason, actor.userId, distributionId, memberId]);
     await recalculateShareAllocations(distributionId, connection);
-    await insertAuditLog({ userId: actor.userId, action: 'OVERRIDE_DISTRIBUTION_SHARE_UNITS', entity: 'profit_distribution_member_allocations', entityId: members[0].member_allocation_id, oldValue: { share_units: Number(members[0].override_share_units ?? members[0].calculated_share_units) }, newValue: { share_units: units }, metadata: { distribution_id: distributionId, reason }, connection });
+    await insertAuditLog({ userId: actor.userId, action: 'OVERRIDE_DISTRIBUTION_SHARE_UNITS', entity: 'profit_distribution_member_allocations', entityId: members[0].member_allocation_id, oldValue: { share_units: String(members[0].override_share_units ?? members[0].calculated_share_units) }, newValue: { share_units: units }, metadata: { distribution_id: distributionId, reason }, connection });
     return getDistributionById(distributionId, connection);
   });
 }

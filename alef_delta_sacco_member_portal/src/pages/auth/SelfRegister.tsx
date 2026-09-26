@@ -1116,6 +1116,7 @@ export default function SelfRegister() {
                           }}
                         />
                       </FormControl>
+                      <FormDescription>{t('registration.fields.shares_requested_desc')}</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

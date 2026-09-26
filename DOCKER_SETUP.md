@@ -89,7 +89,7 @@ PORT=4000
 DB_HOST=mysql              # Docker service name
 DB_PORT=3306
 DB_USER=alefdelta_admin
-DB_PASSWORD=~HNiBgmo56wag~y3
+DB_PASSWORD=use-a-strong-secret-from-the-private-production-env
 DB_NAME=alef_delta_sacco
 BACKEND_BASE_URL=http://157.173.127.142:4001/api
 API_BASE_URL=http://157.173.127.142:4001/api
@@ -112,7 +112,7 @@ VITE_API_BASE_URL=http://157.173.127.142:4001/api
    - **System**: MySQL
    - **Server**: mysql (or use `alefdelta_mysql` container name)
    - **Username**: `alefdelta_admin` (or `root`)
-   - **Password**: `~HNiBgmo56wag~y3` (or root password from docker-compose.yml)
+   - **Password**: use the value from the private production environment (never commit it to documentation)
    - **Database**: `alef_delta_sacco`
 
 ### Running Migrations
@@ -341,4 +341,3 @@ alefdelta/
 - All services are on the same Docker network (`alefdelta_network`)
 - Uploads are persisted in the `api_uploads` volume
 - Database files are persisted in the `mysql_data` volume
-

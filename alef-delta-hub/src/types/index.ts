@@ -125,6 +125,7 @@ export interface Account {
   member_id: string;
   product_code: ProductCode;
   balance: number;
+  share_unit_balance?: number | string;
   lien_amount: number;
   currency: string;
   status: AccountStatus;
@@ -165,6 +166,7 @@ export interface Transaction {
   txn_id: string;
   account_id: string;
   txn_type: TransactionType;
+  transaction_category?: 'STANDARD_DEPOSIT' | 'STANDARD_WITHDRAWAL' | 'SHARE_PURCHASE' | 'SHARE_REDEMPTION' | null;
   amount: number;
   balance_after: number;
   reference: string;

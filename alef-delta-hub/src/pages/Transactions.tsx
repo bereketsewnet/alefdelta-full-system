@@ -27,6 +27,13 @@ const getImageUrl = (url: string | null | undefined): string => {
   return `${apiBaseUrl}${url.startsWith('/') ? url : `/${url}`}`;
 };
 
+const getTransactionLabel = (transaction: Transaction): string => {
+  const category = transaction.transaction_category;
+  if (category === 'SHARE_PURCHASE') return 'Share Purchase';
+  if (category === 'SHARE_REDEMPTION') return 'Share Redemption';
+  return transaction.txn_type.replaceAll('_', ' ');
+};
+
 const Transactions = () => {
   const [user, setUser] = useState<User | null>(null);
   const navigate = useNavigate();
@@ -131,7 +138,7 @@ const Transactions = () => {
       header: "Type",
       cell: (row: Transaction) => (
         <Badge variant={row.txn_type === 'DEPOSIT' ? 'default' : 'destructive'}>
-          {row.txn_type}
+          {getTransactionLabel(row)}
         </Badge>
       ),
     },
@@ -328,4 +335,3 @@ const Transactions = () => {
 };
 
 export default Transactions;
-

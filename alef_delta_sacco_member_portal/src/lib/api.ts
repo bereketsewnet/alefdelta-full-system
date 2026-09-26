@@ -286,6 +286,7 @@ import type {
           account_number: account.product_code || account.account_id,  // Use product_code as account number
           account_type: mapProductCodeToAccountType(account.product_code),
           balance: Number(account.balance || 0),
+          share_unit_balance: String(account.share_unit_balance || '0.00000000'),
           lien_amount: Number(account.lien_amount || 0),
           available_balance: Number(account.available_balance || 0),
           status: account.status as Account['status'],
@@ -330,6 +331,10 @@ import type {
           let transactionType: Transaction['type'] = 'DEPOSIT';
           if (txn.source_type === 'LOAN_REPAYMENT' || txn.txn_type === 'LOAN_REPAYMENT') {
             transactionType = 'LOAN_REPAYMENT' as Transaction['type'];
+          } else if (txn.transaction_category === 'SHARE_PURCHASE') {
+            transactionType = 'SHARE_PURCHASE';
+          } else if (txn.transaction_category === 'SHARE_REDEMPTION') {
+            transactionType = 'SHARE_REDEMPTION';
           } else {
             transactionType = (txn.txn_type || txn.type || 'DEPOSIT') as Transaction['type'];
           }
@@ -400,12 +405,21 @@ import type {
               receiptUrl = `${baseUrl}${normalizedPath}`;
             }
           }
+
+          let transactionType: Transaction['type'];
+          if (txn.transaction_category === 'SHARE_PURCHASE') {
+            transactionType = 'SHARE_PURCHASE';
+          } else if (txn.transaction_category === 'SHARE_REDEMPTION') {
+            transactionType = 'SHARE_REDEMPTION';
+          } else {
+            transactionType = (txn.txn_type || txn.type || 'DEPOSIT') as Transaction['type'];
+          }
           
           return {
             id: txn.txn_id || txn.id,
             transaction_id: txn.txn_id || txn.transaction_id,
             account_id: txn.account_id,
-            type: (txn.txn_type || txn.type || 'DEPOSIT') as Transaction['type'],
+            type: transactionType,
             amount: Number(txn.amount || 0),
             balance_after: Number(txn.balance_after || 0),
             reference: txn.reference || '',
@@ -571,6 +585,49 @@ import type {
       getDepositRequests: async (): Promise<any[]> => {
         const response = await apiFetch<{ data: any[] }>('/deposit-requests');
         return response.data;
+      },
+
+      getShareSummary: async (): Promise<any> => {
+        const response = await apiFetch<{ data: any }>('/client/shares/summary');
+        return response.data;
+      },
+
+      getSharePurchaseQuote: async (amount: number): Promise<any> => {
+        const response = await apiFetch<{ data: any }>('/client/shares/quote', {
+          method: 'POST',
+          body: JSON.stringify({ amount: amount.toFixed(2) }),
+        });
+        return response.data;
+      },
+
+      getShareEntries: async (): Promise<any[]> => {
+        const response = await apiFetch<{ data: any[] }>('/client/shares/entries');
+        return response.data;
+      },
+
+      getSharePurchaseRequests: async (): Promise<any[]> => {
+        const response = await apiFetch<{ data: any[] }>('/client/shares/purchase-requests');
+        return response.data;
+      },
+
+      createSharePurchaseRequest: async (payload: { amount: number; reference_number: string; description?: string; receipt: File }): Promise<any> => {
+        const formData = new FormData();
+        formData.append('amount', payload.amount.toString());
+        formData.append('reference_number', payload.reference_number.trim());
+        if (payload.description) formData.append('description', payload.description);
+        formData.append('receipt', payload.receipt);
+        const token = getToken();
+        const response = await fetch(`${API_BASE}/client/shares/purchase-requests`, {
+          method: 'POST',
+          headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+          body: formData,
+        });
+        if (!response.ok) {
+          if (response.status === 401) clearAuthAndRedirect();
+          const error = await response.json().catch(() => ({ message: 'Request failed' }));
+          throw new Error(error.message || error.error?.message || 'Request failed');
+        }
+        return response.json();
       },
       
       /**

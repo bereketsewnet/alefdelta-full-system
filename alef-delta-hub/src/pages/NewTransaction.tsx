@@ -14,21 +14,25 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, Search, X, Upload, Image as ImageIcon, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, Search, X, Upload, RefreshCw, Coins } from "lucide-react";
 import { CurrencyDisplay } from "@/components/shared/CurrencyDisplay";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useDebounce } from "@/hooks/use-debounce";
 
 const transactionSchema = z.object({
   account_id: z.string().min(1, "Please select an account"),
-  type: z.enum(["DEPOSIT", "WITHDRAWAL"]),
+  type: z.enum(["DEPOSIT", "WITHDRAWAL", "SHARE_PURCHASE", "SHARE_REDEMPTION"]),
   amount: z.coerce.number().positive("Amount must be positive"),
-  reference: z.string().min(1, "Reference is required"),
+  reference: z.string().trim().min(1, "Reference is required").max(120, "Company receipt number must not exceed 120 characters"),
   bank_receipt_no: z.string().trim().max(160, "Bank receipt number is too long").optional(),
   remark: z.string().trim().max(2000, "Remark must not exceed 2,000 characters").optional(),
 });
 
 type TransactionForm = z.infer<typeof transactionSchema>;
+const formatShareUnits = (value: string | number | null | undefined) => {
+  const [whole = '0', fraction = ''] = String(value ?? '0').split('.');
+  return `${whole}.${fraction.padEnd(8, '0').slice(0, 8)}`;
+};
 
 const NewTransaction = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -53,7 +57,8 @@ const NewTransaction = () => {
 
   // Get transaction type from URL params
   const urlType = searchParams.get("type")?.toUpperCase();
-  const defaultType = (urlType === "DEPOSIT" || urlType === "WITHDRAWAL") ? urlType : "DEPOSIT";
+  const allowedTypes = ["DEPOSIT", "WITHDRAWAL", "SHARE_PURCHASE", "SHARE_REDEMPTION"] as const;
+  const defaultType = allowedTypes.includes(urlType as typeof allowedTypes[number]) ? urlType : "DEPOSIT";
 
   const {
     register,
@@ -66,14 +71,18 @@ const NewTransaction = () => {
   } = useForm<TransactionForm>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
-      type: defaultType as "DEPOSIT" | "WITHDRAWAL",
+      type: defaultType as TransactionForm["type"],
+      account_id: "",
+      reference: "",
+      bank_receipt_no: "",
+      remark: "",
     },
   });
 
   // Set type from URL on mount
   useEffect(() => {
-    if (urlType === "DEPOSIT" || urlType === "WITHDRAWAL") {
-      setValue("type", urlType);
+    if (allowedTypes.includes(urlType as typeof allowedTypes[number])) {
+      setValue("type", urlType as TransactionForm["type"]);
     }
   }, [urlType, setValue]);
 
@@ -120,6 +129,37 @@ const NewTransaction = () => {
   const accountId = watch("account_id");
   const transactionType = watch("type");
   const amount = watch("amount");
+  const isShareTransaction = transactionType === "SHARE_PURCHASE" || transactionType === "SHARE_REDEMPTION";
+  const isWithdrawal = transactionType === "WITHDRAWAL" || transactionType === "SHARE_REDEMPTION";
+
+  useEffect(() => {
+    if (!accountsData.length) return;
+    const eligible = accountsData.find((account) => isShareTransaction
+      ? account.product_code === 'SHR_CAP' && account.status !== 'CLOSED'
+      : account.product_code !== 'SHR_CAP' && account.status !== 'CLOSED');
+    if (isShareTransaction) {
+      setValue('account_id', eligible?.account_id || '');
+    } else if (selectedAccount?.product_code === 'SHR_CAP') {
+      setValue('account_id', '');
+    }
+  }, [accountsData, isShareTransaction, selectedAccount?.product_code, setValue]);
+
+  const shareMemberIsActive = selectedMember?.status === 'ACTIVE';
+  const { data: shareQuoteResponse, isFetching: loadingShareQuote, error: shareQuoteError } = useQuery({
+    queryKey: ['share-quote', accountId, transactionType, amount],
+    queryFn: async () => api.post<{ data: any }>('/shares/quote', {
+      account_id: accountId,
+      action: transactionType === 'SHARE_PURCHASE' ? 'PURCHASE' : 'REDEMPTION',
+      amount: Number(amount).toFixed(2),
+    }),
+    enabled: isShareTransaction && shareMemberIsActive && !!accountId && Number(amount) > 0,
+    retry: false,
+  });
+  const shareQuote = shareQuoteResponse?.data.data;
+  const shareQuoteErrorMessage = (shareQuoteError as any)?.response?.data?.message
+    || ((shareQuoteError as any)?.message && (shareQuoteError as any).message !== 'Network Error'
+      ? (shareQuoteError as any).message
+      : null);
 
   const checkReferenceAvailability = async (
     reference: string,
@@ -193,7 +233,7 @@ const NewTransaction = () => {
     if (data.bank_receipt_no && !(await checkReferenceAvailability(data.bank_receipt_no, "bank_receipt_no", false))) return;
 
     // For withdrawals: block on frozen or closed accounts
-    if (data.type === 'WITHDRAWAL') {
+    if (data.type === 'WITHDRAWAL' || data.type === 'SHARE_REDEMPTION') {
       if (selectedAccount.status === 'FROZEN') {
         toast({
           title: "Withdrawal Blocked",
@@ -211,9 +251,25 @@ const NewTransaction = () => {
         return;
       }
     }
+    if (isShareTransaction && selectedAccount.status === 'FROZEN') {
+      toast({
+        title: "Share Transaction Blocked",
+        description: "Share purchases and redemptions cannot be posted to a frozen Share Capital account.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (isShareTransaction && selectedMember?.status !== 'ACTIVE') {
+      toast({
+        title: "Share Transaction Blocked",
+        description: "Only an ACTIVE member may purchase or redeem shares.",
+        variant: "destructive",
+      });
+      return;
+    }
     
     // For deposits: only block on closed accounts (frozen accounts allow deposits)
-    if (data.type === 'DEPOSIT' && selectedAccount.status === 'CLOSED') {
+    if ((data.type === 'DEPOSIT' || data.type === 'SHARE_PURCHASE') && selectedAccount.status === 'CLOSED') {
       toast({
         title: "Transaction Blocked",
         description: "Cannot perform transactions on a closed account.",
@@ -227,7 +283,7 @@ const NewTransaction = () => {
     
     // Show loading toast for withdrawals (which take longer)
     let loadingToast: { id: string | number; dismiss: () => void } | undefined;
-    if (data.type === 'WITHDRAWAL') {
+    if (data.type === 'WITHDRAWAL' || data.type === 'SHARE_REDEMPTION') {
       loadingToast = toast({
         title: "Processing Withdrawal...",
         description: "This may take a few moments. Please wait...",
@@ -236,7 +292,9 @@ const NewTransaction = () => {
     }
 
     try {
-      const endpoint = data.type === "DEPOSIT" ? "/transactions/deposit" : "/transactions/withdraw";
+      const endpoint = data.type === "DEPOSIT" ? "/transactions/deposit"
+        : data.type === "WITHDRAWAL" ? "/transactions/withdraw"
+          : data.type === "SHARE_PURCHASE" ? "/shares/purchases" : "/shares/redemptions";
       
       // Use multipart whenever either proof photo is present.
       if (receiptFile || bankReceiptFile) {
@@ -278,7 +336,7 @@ const NewTransaction = () => {
 
       toast({
         title: "Transaction Successful",
-        description: `${data.type} of ${formatCurrency(data.amount)} completed.`,
+        description: `${data.type.replaceAll('_', ' ')} of ${formatCurrency(data.amount)} completed.`,
       });
 
       // Reset form
@@ -326,7 +384,7 @@ const NewTransaction = () => {
           </Button>
           <div>
             <h1 className="text-xl font-bold">New Transaction</h1>
-            <p className="text-sm text-muted-foreground">Process deposit or withdrawal</p>
+            <p className="text-sm text-muted-foreground">Process savings and fractional share transactions</p>
           </div>
         </div>
       </header>
@@ -336,7 +394,7 @@ const NewTransaction = () => {
           <CardHeader>
             <CardTitle>Member Selection</CardTitle>
             <CardDescription>
-              Search for a member to process {transactionType === "DEPOSIT" ? "deposit" : "withdrawal"}
+              Search for a member to process {transactionType.replaceAll('_', ' ').toLowerCase()}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -410,7 +468,7 @@ const NewTransaction = () => {
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <Label>Transaction Type</Label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Button
                     type="button"
                     variant={transactionType === "DEPOSIT" ? "default" : "outline"}
@@ -429,7 +487,28 @@ const NewTransaction = () => {
                     <ArrowDownCircle className="mr-2 h-5 w-5" />
                     Withdrawal
                   </Button>
+                  <Button
+                    type="button"
+                    variant={transactionType === "SHARE_PURCHASE" ? "default" : "outline"}
+                    className="h-20"
+                    onClick={() => setValue("type", "SHARE_PURCHASE")}
+                  >
+                    <Coins className="mr-2 h-5 w-5" />
+                    Share Purchase
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={transactionType === "SHARE_REDEMPTION" ? "default" : "outline"}
+                    className="h-20"
+                    onClick={() => setValue("type", "SHARE_REDEMPTION")}
+                  >
+                    <Coins className="mr-2 h-5 w-5" />
+                    Share Redemption
+                  </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Share transactions use the dedicated SHR_CAP account and record fractional ownership. They are member equity, not SACCO revenue.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -444,7 +523,7 @@ const NewTransaction = () => {
                       No accounts found for this member. Please create an account first.
                     </p>
                   </div>
-                ) : selectedMember && selectedMember.status === 'PENDING' && transactionType === 'WITHDRAWAL' ? (
+                ) : selectedMember && selectedMember.status === 'PENDING' && isWithdrawal ? (
                   <div className="p-4 border rounded-md bg-warning/10 border-warning/20">
                     <p className="text-sm font-medium text-warning">
                       ⚠️ Pending Member - Activate First
@@ -455,9 +534,9 @@ const NewTransaction = () => {
                   </div>
                 ) : (
                   <Select
-                    value={accountId}
+                    value={accountId || ""}
                     onValueChange={(value) => setValue("account_id", value)}
-                    disabled={selectedMember?.status === 'PENDING' && transactionType === 'WITHDRAWAL'}
+                    disabled={isShareTransaction || (selectedMember?.status === 'PENDING' && isWithdrawal)}
                   >
                     <SelectTrigger id="account_id">
                       <SelectValue placeholder="Choose an account" />
@@ -465,7 +544,8 @@ const NewTransaction = () => {
                     <SelectContent>
                       {Array.isArray(accountsData) && accountsData.length > 0 ? (
                         accountsData
-                          .filter(account => account.status !== 'CLOSED') // Show all non-closed accounts
+                          .filter(account => account.status !== 'CLOSED')
+                          .filter(account => isShareTransaction ? account.product_code === 'SHR_CAP' : account.product_code !== 'SHR_CAP')
                           .map((account) => (
                             <SelectItem key={account.account_id} value={account.account_id}>
                               {account.product_code} - {formatCurrency(account.balance)}
@@ -483,17 +563,25 @@ const NewTransaction = () => {
                 {errors.account_id && (
                   <p className="text-sm text-destructive">{errors.account_id.message}</p>
                 )}
+                {isShareTransaction && selectedMember?.status !== 'ACTIVE' && (
+                  <div className="rounded-md border border-warning/30 bg-warning/10 p-3">
+                    <p className="text-sm font-medium text-warning">Share transaction unavailable</p>
+                    <p className="mt-1 text-xs text-warning/90">
+                      This member is {String(selectedMember?.status || 'not active').replaceAll('_', ' ')}. Activate the member before purchasing or redeeming shares.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {selectedAccount && (
                 <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
-                  {selectedAccount.status === 'FROZEN' && transactionType === 'WITHDRAWAL' && (
+                  {selectedAccount.status === 'FROZEN' && (isWithdrawal || isShareTransaction) && (
                     <div className="p-3 bg-warning/10 border border-warning/20 rounded-md mb-2">
                       <p className="text-sm font-medium text-warning">
                         ⚠️ Account is FROZEN
                       </p>
                       <p className="text-xs text-warning/80 mt-1">
-                        Withdrawals are not allowed on frozen accounts. Deposits are allowed.
+                        {isShareTransaction ? 'Share purchases and redemptions are not allowed on frozen Share Capital accounts.' : 'Withdrawals are not allowed on frozen accounts. Deposits are allowed.'}
                       </p>
                     </div>
                   )}
@@ -507,7 +595,7 @@ const NewTransaction = () => {
                       </p>
                     </div>
                   )}
-                  {selectedMember?.status === 'PENDING' && transactionType === 'WITHDRAWAL' && (
+                  {selectedMember?.status === 'PENDING' && isWithdrawal && (
                     <div className="p-3 bg-warning/10 border border-warning/20 rounded-md mb-2">
                       <p className="text-sm font-medium text-warning">
                         ⚠️ Pending Member
@@ -539,6 +627,12 @@ const NewTransaction = () => {
                     <span className="text-sm">Available Balance:</span>
                     <CurrencyDisplay amount={availableBalance} className="text-sm" variant="positive" />
                   </div>
+                  {selectedAccount.product_code === 'SHR_CAP' && (
+                    <div className="flex justify-between">
+                      <span className="text-sm text-muted-foreground">Fractional Shares:</span>
+                      <span className="font-mono text-sm font-semibold">{formatShareUnits(selectedAccount.share_unit_balance)}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -695,7 +789,30 @@ const NewTransaction = () => {
                 {errors.remark && <p className="text-sm text-destructive">{errors.remark.message}</p>}
               </div>
 
-              {amount > 0 && selectedAccount && (
+              {amount > 0 && selectedAccount && isShareTransaction && (
+                <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
+                  <p className="mb-2 text-sm font-semibold">Fractional Share Preview</p>
+                  {!shareMemberIsActive ? (
+                    <p className="text-sm text-destructive">
+                      This member is {String(selectedMember?.status || 'not active').replaceAll('_', ' ')}. Only ACTIVE members may purchase or redeem shares.
+                    </p>
+                  ) : loadingShareQuote ? <p className="text-sm text-muted-foreground">Calculating from the share ledger…</p> : shareQuote ? (
+                    <div className="space-y-1 text-sm">
+                      {shareQuote.share_price && <div className="flex justify-between"><span>Price for this purchase:</span><span>{formatCurrency(Number(shareQuote.share_price))}</span></div>}
+                      <div className="flex justify-between"><span>{transactionType === 'SHARE_PURCHASE' ? 'Units purchased:' : 'Units redeemed:'}</span><span className="font-mono">{shareQuote.unit_change}</span></div>
+                      <div className="flex justify-between"><span>Units after:</span><span className="font-mono font-semibold">{shareQuote.units_after}</span></div>
+                      <div className="flex justify-between"><span>ETB balance after:</span><span>{formatCurrency(Number(shareQuote.balance_after))}</span></div>
+                      {shareQuote.fifo_lots?.length > 0 && <p className="pt-2 text-xs text-muted-foreground">Redemption uses {shareQuote.fifo_lots.length} oldest purchase lot(s) at their original paid prices.</p>}
+                    </div>
+                  ) : shareQuoteErrorMessage ? (
+                    <p className="text-sm text-destructive">{shareQuoteErrorMessage}</p>
+                  ) : (
+                    <p className="text-sm text-destructive">Unable to calculate this share transaction. Verify the amount and try again.</p>
+                  )}
+                </div>
+              )}
+
+              {amount > 0 && selectedAccount && !isShareTransaction && (
                 <div className="rounded-lg border-2 border-accent/20 bg-accent-light p-4">
                   <p className="text-sm font-semibold mb-2">Transaction Preview:</p>
                   <div className="space-y-1 text-sm">
@@ -742,8 +859,10 @@ const NewTransaction = () => {
                 isCheckingReference ||
                 !selectedAccount || 
                 selectedAccount.status === 'CLOSED' ||
-                (transactionType === 'WITHDRAWAL' && selectedAccount.status === 'FROZEN') ||
-                (transactionType === 'WITHDRAWAL' && selectedMember?.status === 'PENDING')
+                (isWithdrawal && selectedAccount.status === 'FROZEN') ||
+                (isWithdrawal && selectedMember?.status === 'PENDING') ||
+                (isShareTransaction && !shareMemberIsActive) ||
+                (isShareTransaction && !shareQuote)
               }
             >
               {(isSubmitting || isProcessing || isCheckingReference) ? (
@@ -753,9 +872,9 @@ const NewTransaction = () => {
                 </>
               ) : selectedAccount && selectedAccount.status === 'CLOSED' ? (
                 "Cannot process - Account is CLOSED"
-              ) : selectedAccount && transactionType === 'WITHDRAWAL' && selectedAccount.status === 'FROZEN' ? (
+              ) : selectedAccount && isWithdrawal && selectedAccount.status === 'FROZEN' ? (
                 "Cannot withdraw - Account is FROZEN"
-              ) : selectedMember && transactionType === 'WITHDRAWAL' && selectedMember.status === 'PENDING' ? (
+              ) : selectedMember && isWithdrawal && selectedMember.status === 'PENDING' ? (
                 "Cannot withdraw - Member is PENDING"
               ) : (
                 "Submit Transaction"

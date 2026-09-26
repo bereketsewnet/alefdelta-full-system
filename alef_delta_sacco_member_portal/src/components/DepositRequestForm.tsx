@@ -1,5 +1,5 @@
 // Deposit Request Form Modal Component
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2, Upload, Image as ImageIcon } from 'lucide-react';
 import { useForm } from 'react-hook-form';
@@ -20,7 +20,7 @@ const depositRequestSchema = z.object({
   account_id: z.string().min(1, 'Please select an account'),
   amount: z.number().min(1, 'Amount must be greater than 0'),
   reference_number: z.string().trim().min(1, 'Reference / Receipt No. is required').max(100, 'Reference must not exceed 100 characters'),
-  description: z.string().min(10, 'Description must be at least 10 characters'),
+  description: z.string().trim().max(2000, 'Remark must not exceed 2,000 characters').optional().or(z.literal('')),
   receipt: z.instanceof(File).optional(),
 });
 
@@ -30,17 +30,20 @@ interface DepositRequestFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  mode?: 'DEPOSIT' | 'SHARE_PURCHASE';
 }
 
 export function DepositRequestForm({
   isOpen,
   onClose,
   onSuccess,
+  mode = 'DEPOSIT',
 }: DepositRequestFormProps) {
   const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingReference, setIsCheckingReference] = useState(false);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [quotedAmount, setQuotedAmount] = useState(0);
   
   // Fetch accounts for dropdown
   const { data: accounts } = useQuery({
@@ -69,6 +72,28 @@ export function DepositRequestForm({
   });
 
   const receiptFile = watch('receipt');
+  const amount = watch('amount');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQuotedAmount(Number(amount) || 0), 350);
+    return () => window.clearTimeout(timer);
+  }, [amount]);
+  const { data: shareSummary } = useQuery({
+    queryKey: ['share-summary'],
+    queryFn: () => api.client.getShareSummary(),
+    enabled: isOpen && mode === 'SHARE_PURCHASE',
+  });
+  const { data: shareQuote, isFetching: isLoadingShareQuote } = useQuery({
+    queryKey: ['share-purchase-quote', quotedAmount],
+    queryFn: () => api.client.getSharePurchaseQuote(quotedAmount),
+    enabled: isOpen && mode === 'SHARE_PURCHASE' && quotedAmount > 0,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (mode !== 'SHARE_PURCHASE' || !accounts?.length) return;
+    const shareAccount = accounts.find((account) => account.account_type === 'SHARE_CAPITAL');
+    setValue('account_id', shareAccount?.id || '');
+  }, [accounts, mode, setValue]);
 
   const checkReferenceAvailability = async (reference: string) => {
     const cleanedReference = reference.trim();
@@ -100,6 +125,12 @@ export function DepositRequestForm({
   const handleReceiptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('image/')) {
+        setError('receipt', { type: 'validate', message: 'Receipt proof must be an image' });
+        e.target.value = '';
+        return;
+      }
+      clearErrors('receipt');
       setValue('receipt', file);
       // Create preview
       const reader = new FileReader();
@@ -112,19 +143,32 @@ export function DepositRequestForm({
 
   const onSubmit = async (data: DepositRequestFormData) => {
     if (!(await checkReferenceAvailability(data.reference_number))) return;
+    if (mode === 'SHARE_PURCHASE' && !data.receipt) {
+      setError('receipt', { type: 'required', message: 'Bank receipt photo is required for a share purchase request' });
+      return;
+    }
     setIsSubmitting(true);
     try {
-      await api.client.createDepositRequest({
-        account_id: data.account_id,
-        amount: data.amount,
-        reference_number: data.reference_number.trim(),
-        description: data.description,
-        receipt: data.receipt,
-      });
+      if (mode === 'SHARE_PURCHASE') {
+        await api.client.createSharePurchaseRequest({
+          amount: data.amount,
+          reference_number: data.reference_number.trim(),
+          description: data.description,
+          receipt: data.receipt!,
+        });
+      } else {
+        await api.client.createDepositRequest({
+          account_id: data.account_id,
+          amount: data.amount,
+          reference_number: data.reference_number.trim(),
+          description: data.description,
+          receipt: data.receipt,
+        });
+      }
       
       toast({
         title: t('success'),
-        description: 'Deposit request submitted successfully. Waiting for approval.',
+        description: `${mode === 'SHARE_PURCHASE' ? 'Share purchase' : 'Deposit'} request submitted successfully. No money moves until staff approval.`,
       });
       
       reset();
@@ -174,7 +218,7 @@ export function DepositRequestForm({
             >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
-              <h2 className="text-lg font-semibold">Deposit Request</h2>
+              <h2 className="text-lg font-semibold">{mode === 'SHARE_PURCHASE' ? 'Request Share Purchase' : 'Deposit Request'}</h2>
               <button
                 onClick={handleClose}
                 className="p-2 hover:bg-muted rounded-full transition-colors"
@@ -188,7 +232,7 @@ export function DepositRequestForm({
               <div className="overflow-y-auto flex-1 min-h-0">
                 <div className="p-4 space-y-4 pb-2">
                   {/* Account Selection */}
-                  <div className="space-y-2">
+                  <div className={mode === 'SHARE_PURCHASE' ? 'hidden' : 'space-y-2'}>
                     <Label htmlFor="account_id">Select Account *</Label>
                     <Select
                       value={watch('account_id')}
@@ -198,7 +242,7 @@ export function DepositRequestForm({
                         <SelectValue placeholder="Select account to deposit to" />
                       </SelectTrigger>
                       <SelectContent>
-                        {accounts?.map((account) => (
+                        {accounts?.filter((account) => account.account_type !== 'SHARE_CAPITAL').map((account) => (
                           <SelectItem key={account.id} value={account.id}>
                             {account.account_type} - {account.account_number}
                             {' '}(ETB {account.balance.toLocaleString()})
@@ -210,6 +254,15 @@ export function DepositRequestForm({
                       <p className="text-sm text-destructive">{errors.account_id.message}</p>
                     )}
                   </div>
+
+                  {mode === 'SHARE_PURCHASE' && shareSummary && (
+                    <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+                      <div className="flex justify-between"><span>Current share units</span><span className="font-mono">{shareSummary.share_units}</span></div>
+                      <div className="flex justify-between"><span>Price for this request</span><span>ETB {Number(shareSummary.active_share_price).toFixed(2)}</span></div>
+                      <div className="flex justify-between font-semibold"><span>Quoted units</span><span className="font-mono">{isLoadingShareQuote || Number(amount || 0) !== quotedAmount ? 'Calculating…' : (shareQuote?.unit_change || '0.00000000')}</span></div>
+                      <p className="text-xs text-muted-foreground">This price and quote are frozen when submitted. Existing ownership is not changed by later price updates.</p>
+                    </div>
+                  )}
                   
                   {/* Amount */}
                   <div className="space-y-2">
@@ -252,7 +305,7 @@ export function DepositRequestForm({
                   
                   {/* Receipt Upload */}
                   <div className="space-y-2">
-                    <Label htmlFor="receipt">Bank Receipt Photo/Screenshot</Label>
+                    <Label htmlFor="receipt">Bank Receipt Photo/Screenshot {mode === 'SHARE_PURCHASE' ? '*' : ''}</Label>
                     <div className="space-y-2">
                       <label
                         htmlFor="receipt"
@@ -284,14 +337,14 @@ export function DepositRequestForm({
                               Click to upload receipt
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              PNG, JPG, PDF up to 5MB
+                              PNG, JPG or WebP up to 5MB
                             </p>
                           </div>
                         )}
                         <input
                           id="receipt"
                           type="file"
-                          accept="image/*,.pdf"
+                          accept="image/*"
                           className="hidden"
                           onChange={handleReceiptChange}
                         />
@@ -300,11 +353,12 @@ export function DepositRequestForm({
                     <p className="text-xs text-muted-foreground">
                       Upload a screenshot or photo of your deposit receipt
                     </p>
+                    {errors.receipt && <p className="text-sm text-destructive">{errors.receipt.message}</p>}
                   </div>
                   
                   {/* Description */}
                   <div className="space-y-2">
-                    <Label htmlFor="description">Description *</Label>
+                    <Label htmlFor="description">Reason / Remark <span className="text-muted-foreground">(Optional)</span></Label>
                     <Textarea
                       id="description"
                       rows={3}
@@ -319,7 +373,7 @@ export function DepositRequestForm({
                   {/* Info Box */}
                   <div className="p-3 bg-muted/50 rounded-lg">
                     <p className="text-xs text-muted-foreground">
-                      Your deposit request will be submitted for staff approval. You will be notified once it's processed.
+                      Your {mode === 'SHARE_PURCHASE' ? 'share purchase' : 'deposit'} request will be submitted for staff approval. No money or share units move until it is approved.
                     </p>
                   </div>
                 </div>

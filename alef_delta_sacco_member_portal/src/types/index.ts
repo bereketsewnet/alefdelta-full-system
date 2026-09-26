@@ -18,14 +18,15 @@ export interface Member {
     created_at: string;
     updated_at: string;
   }
-  
+
   export type MemberStatus = 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'TERMINATED' | 'CLOSED';
-  
+
   export interface Account {
     id: string;
     account_number: string;
     account_type: AccountType;
     balance: number;
+    share_unit_balance?: string;
     lien_amount: number;
     available_balance: number;
     status: AccountStatus;
@@ -51,7 +52,7 @@ export interface Member {
     created_at: string;
   }
   
-  export type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'INTEREST' | 'TRANSFER' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT' | 'FEE' | 'PENALTY';
+  export type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'SHARE_PURCHASE' | 'SHARE_REDEMPTION' | 'INTEREST' | 'TRANSFER' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT' | 'FEE' | 'PENALTY';
   
   export interface Loan {
     id: string;
@@ -101,7 +102,7 @@ export interface Member {
     processed_at?: string;
   }
   
-  export type RequestType = 'DEPOSIT' | 'REPAYMENT' | 'LOAN_REQUEST' | 'PROFILE_UPDATE' | 'PASSWORD_RESET' | 'DOCUMENT_UPLOAD';
+  export type RequestType = 'DEPOSIT' | 'SHARE_PURCHASE' | 'REPAYMENT' | 'LOAN_REQUEST' | 'PROFILE_UPDATE' | 'PASSWORD_RESET' | 'DOCUMENT_UPLOAD';
   export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
   
   export interface Notification {
@@ -139,4 +140,3 @@ export interface Member {
     message: string;
     code?: string;
   }
-  

@@ -26,6 +26,7 @@ import loanRequestRoutes from '../modules/loan-requests/loan-request.routes.js';
 import uploadRoutes from '../modules/uploads/upload.routes.js';
 import profitDistributionRoutes from '../modules/profit-distributions/profit-distribution.routes.js';
 import financialReferenceRoutes from '../modules/financial-references/financial-reference.routes.js';
+import shareRoutes from '../modules/shares/share.routes.js';
 import { healthCheck } from '../core/db.js';
 
 const router = Router();
@@ -46,6 +47,7 @@ router.use('/loan-products', loanProductRoutes);
 router.use('/account-products', accountProductRoutes);
 router.use('/profit-distributions', profitDistributionRoutes);
 router.use('/financial-references', financialReferenceRoutes);
+router.use('/shares', shareRoutes);
 router.use('/collateral', collateralRoutes);
 router.use('/guarantors', guarantorRoutes);
 router.use('/beneficiaries', beneficiaryRoutes);

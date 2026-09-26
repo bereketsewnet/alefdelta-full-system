@@ -4,7 +4,8 @@ const accountState = {
   account_id: 'acc-1',
   balance: 1000,
   lien_amount: 0,
-  version: 1
+  version: 1,
+  financial_category: 'VOLUNTARY_SAVINGS'
 };
 
 const insertTransactionMock = jest.fn();
@@ -70,6 +71,7 @@ const transactionService = await import('../../src/modules/transactions/transact
 beforeEach(() => {
   accountState.balance = 1000;
   accountState.version = 1;
+  accountState.financial_category = 'VOLUNTARY_SAVINGS';
   insertTransactionMock.mockClear();
   auditLogMock.mockClear();
   findTransactionByIdMock.mockReset();
@@ -149,5 +151,17 @@ describe('deposit & withdraw integration', () => {
     const failure = first.status === 'rejected' ? first.reason : second.reason;
     expect(failure.message).toMatch(/Insufficient available balance/);
     expect(insertTransactionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('prevents generic deposits from bypassing Share Capital unit accounting', async () => {
+    accountState.financial_category = 'SHARE_CAPITAL';
+    await expect(transactionService.deposit({
+      accountId: 'acc-1',
+      amount: 100,
+      reference: 'SHARE-BYPASS-001',
+      performedBy: 'user-1',
+      idempotencyKey: 'share-bypass-key'
+    })).rejects.toThrow(/Use Share Purchase/);
+    expect(insertTransactionMock).not.toHaveBeenCalled();
   });
 });

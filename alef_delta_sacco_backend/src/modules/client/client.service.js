@@ -80,6 +80,7 @@ export async function getClientAccounts(memberId) {
     account_id: a.account_id,
     product_code: a.product_code,
     balance: a.balance,
+    share_unit_balance: a.share_unit_balance || '0.00000000',
     lien_amount: a.lien_amount,
     available_balance: Number(a.balance) - Number(a.lien_amount || 0),
     currency: a.currency,
@@ -215,4 +216,3 @@ export async function getClientLoanSchedule(memberId, loanId) {
     schedule
   };
 }
-

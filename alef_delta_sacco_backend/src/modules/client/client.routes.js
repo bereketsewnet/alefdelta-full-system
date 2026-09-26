@@ -10,6 +10,7 @@ import {
 } from './client.controller.js';
 import depositRequestRoutes from '../deposit-requests/deposit-request.routes.js';
 import notificationRoutes from '../notifications/notification.routes.js';
+import shareClientRoutes from '../shares/share-client.routes.js';
 
 const router = Router();
 
@@ -38,6 +39,6 @@ router.use('/notifications', authenticate, requireMember, notificationRoutes);
 
 // Deposit requests
 router.use('/deposit-requests', authenticate, requireMember, depositRequestRoutes);
+router.use('/shares', authenticate, requireMember, shareClientRoutes);
 
 export default router;
-

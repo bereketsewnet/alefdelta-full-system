@@ -29,6 +29,7 @@ const formatDate = (dateStr: string) => {
 
 const requestTypeIcons: Record<Request['type'], string> = {
   DEPOSIT: '💰',
+  SHARE_PURCHASE: '🏦',
   REPAYMENT: '💳',
   LOAN_REQUEST: '📋',
   PROFILE_UPDATE: '👤',
@@ -49,13 +50,17 @@ export default function Requests() {
     queryKey: ['loan-repayment-requests'],
     queryFn: () => api.client.getLoanRepaymentRequests(),
   });
+  const { data: shareRequestsData, isLoading: shareLoading } = useQuery({
+    queryKey: ['share-purchase-requests'],
+    queryFn: () => api.client.getSharePurchaseRequests(),
+  });
 
   const { data: loanRequestsData, isLoading: loanRequestsLoading } = useQuery({
     queryKey: ['loan-requests'],
     queryFn: () => api.client.getLoanRequests(),
   });
 
-  const isLoading = depositLoading || loanRepaymentLoading || loanRequestsLoading;
+  const isLoading = depositLoading || shareLoading || loanRepaymentLoading || loanRequestsLoading;
 
   // Transform deposit requests to match Request type
   const depositRequests: Request[] = depositRequestsData?.map((req: any) => ({
@@ -66,6 +71,18 @@ export default function Requests() {
     amount: Number(req.amount || 0),
     description: req.description || '',
     staff_notes: req.rejection_reason || (req.status === 'APPROVED' ? `Approved by ${req.approver_username || 'Staff'}` : null),
+    processed_by: req.approver_username || null,
+    created_at: req.created_at,
+  })) || [];
+
+  const shareRequests: Request[] = shareRequestsData?.map((req: any) => ({
+    id: req.request_id,
+    request_id: req.request_id,
+    type: 'SHARE_PURCHASE' as Request['type'],
+    status: req.status as Request['status'],
+    amount: Number(req.amount || 0),
+    description: `Share purchase: ${req.quoted_share_units} units at ETB ${Number(req.quoted_share_price).toFixed(2)} per share`,
+    staff_notes: req.rejection_reason || (req.status === 'APPROVED' ? `Approved by ${req.approver_username || 'Staff'}` : 'No money or units move until approval.'),
     processed_by: req.approver_username || null,
     created_at: req.created_at,
   })) || [];
@@ -125,7 +142,7 @@ export default function Requests() {
   }) || [];
 
   // Combine all types of requests and sort by created_at descending
-  const requests: Request[] = [...depositRequests, ...loanRepaymentRequests, ...loanRequests].sort((a, b) => 
+  const requests: Request[] = [...depositRequests, ...shareRequests, ...loanRepaymentRequests, ...loanRequests].sort((a, b) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 

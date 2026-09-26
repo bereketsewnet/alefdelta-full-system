@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { ensureMemberSavingsAccounts } from '../../src/modules/accounts/account.service.js';
+import { ensureMemberSavingsAccounts, ensureMemberShareAccount } from '../../src/modules/accounts/account.service.js';
 
 const products = [
   {
@@ -17,6 +17,17 @@ const products = [
     product_code: 'SAV_COMPULSORY',
     category: 'SAVINGS',
     financial_category: 'COMPULSORY_SAVINGS',
+    product_kind: 'STANDARD',
+    guardian_required: 0,
+    commodity_required: 0,
+    target_required: 0,
+    interest_method: 'PROFIT_SHARING',
+    is_active: 1
+  },
+  {
+    product_code: 'SHR_CAP',
+    category: 'SHARES',
+    financial_category: 'SHARE_CAPITAL',
     product_kind: 'STANDARD',
     guardian_required: 0,
     commodity_required: 0,
@@ -88,5 +99,32 @@ describe('default member savings accounts', () => {
       connection
     )).rejects.toMatchObject({ status: 400 });
     expect(connection.insertedAccounts).toHaveLength(0);
+  });
+});
+
+describe('default Share Capital account', () => {
+  test('creates one zero-value SHR_CAP account without posting ownership', async () => {
+    const connection = connectionWith();
+    const result = await ensureMemberShareAccount('member-1', { userId: 'teller-1' }, connection);
+    expect(result.created).toBe(true);
+    expect(connection.insertedAccounts).toEqual([
+      expect.objectContaining({ product_code: 'SHR_CAP' })
+    ]);
+  });
+
+  test('does not create a second active SHR_CAP account', async () => {
+    const connection = connectionWith([{ account_id: 'share-existing', product_code: 'SHR_CAP' }]);
+    const result = await ensureMemberShareAccount('member-1', { userId: 'teller-1' }, connection);
+    expect(result).toEqual({ created: false, account_id: 'share-existing' });
+    expect(connection.insertedAccounts).toHaveLength(0);
+  });
+
+  test('blocks duplicate active SHR_CAP accounts instead of guessing', async () => {
+    const connection = connectionWith([
+      { account_id: 'share-1', product_code: 'SHR_CAP' },
+      { account_id: 'share-2', product_code: 'SHR_CAP' }
+    ]);
+    await expect(ensureMemberShareAccount('member-1', { userId: 'teller-1' }, connection))
+      .rejects.toMatchObject({ status: 409 });
   });
 });

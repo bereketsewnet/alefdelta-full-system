@@ -291,6 +291,7 @@ export async function getTellerDashboardStats(userId) {
     `SELECT 
       t.txn_id,
       t.txn_type,
+      t.transaction_category,
       t.amount,
       t.reference,
       t.created_at,
@@ -322,6 +323,7 @@ export async function getTellerDashboardStats(userId) {
     recent_transactions: recentTransactions.map(t => ({
       txn_id: t.txn_id,
       txn_type: t.txn_type,
+      transaction_category: t.transaction_category,
       amount: Number(t.amount),
       reference: t.reference,
       created_at: t.created_at,

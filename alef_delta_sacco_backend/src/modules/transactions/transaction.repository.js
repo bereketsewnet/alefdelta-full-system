@@ -3,13 +3,14 @@ import { query } from '../../core/db.js';
 export async function insertTransaction(payload, connection) {
   await connection.execute(
     `INSERT INTO transactions
-    (txn_id, account_id, txn_type, amount, balance_after, reference, receipt_photo_url,
+    (txn_id, account_id, txn_type, transaction_category, amount, balance_after, reference, receipt_photo_url,
      bank_receipt_no, bank_receipt_photo_url, remark, performed_by, idempotency_key, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       payload.txn_id,
       payload.account_id,
       payload.txn_type,
+      payload.transaction_category || (payload.txn_type === 'DEPOSIT' ? 'STANDARD_DEPOSIT' : 'STANDARD_WITHDRAWAL'),
       payload.amount,
       payload.balance_after,
       payload.reference,
@@ -62,6 +63,7 @@ export async function listTransactions(filters = {}) {
       t.txn_id,
       t.account_id,
       t.txn_type,
+      t.transaction_category,
       t.amount,
       t.balance_after,
       t.reference,
@@ -154,6 +156,7 @@ export async function listTransactionsByMember(memberId, filters = {}) {
         t.txn_id,
         t.account_id,
         t.txn_type,
+        t.transaction_category,
         t.amount,
         t.balance_after,
         t.reference,
@@ -183,6 +186,7 @@ export async function listTransactionsByMember(memberId, filters = {}) {
         lr.repayment_id as txn_id,
         NULL as account_id,
         'LOAN_REPAYMENT' as txn_type,
+        NULL as transaction_category,
         lr.amount_paid as amount,
         lr.balance_after as balance_after,
         lr.receipt_no as reference,

@@ -26,6 +26,11 @@ export async function createDepositRequest(memberId, payload) {
   if (account.member_id !== memberId) {
     throw httpError(403, 'Account does not belong to this member');
   }
+  const categoryRows = await query(`SELECT ap.financial_category FROM accounts a
+    JOIN account_products ap ON ap.product_code = a.product_code WHERE a.account_id = ?`, [payload.account_id]);
+  if (categoryRows[0]?.financial_category === 'SHARE_CAPITAL') {
+    throw httpError(400, 'Use Request Share Purchase for a Share Capital account');
+  }
 
   // Validate amount
   const amount = Number(payload.amount);
@@ -96,14 +101,14 @@ export async function listDepositRequestsByMember(memberId) {
     FROM deposit_requests dr
     JOIN accounts a ON dr.account_id = a.account_id
     LEFT JOIN users u ON dr.approved_by = u.user_id
-    WHERE dr.member_id = ?
+    WHERE dr.member_id = ? AND dr.request_type = 'SAVINGS_DEPOSIT'
     ORDER BY dr.created_at DESC`,
     [memberId]
   );
 }
 
 export async function listAllDepositRequests(filters = {}) {
-  const where = [];
+  const where = ["dr.request_type = 'SAVINGS_DEPOSIT'"];
   const params = [];
   
   if (filters.status && filters.status !== 'ALL') {
@@ -138,6 +143,11 @@ export async function listAllDepositRequests(filters = {}) {
 }
 
 export async function approveDepositRequest(requestId, approverId) {
+  const existing = await query('SELECT request_type FROM deposit_requests WHERE request_id = ?', [requestId]);
+  if (existing[0]?.request_type === 'SHARE_PURCHASE') {
+    const { approveSharePurchaseRequest } = await import('../shares/share.service.js');
+    return approveSharePurchaseRequest(requestId, approverId);
+  }
   await withTransaction(async (connection) => {
     const [rows] = await connection.query('SELECT * FROM deposit_requests WHERE request_id = ? FOR UPDATE', [requestId]);
     const request = rows[0];
@@ -195,6 +205,11 @@ export async function approveDepositRequest(requestId, approverId) {
 }
 
 export async function rejectDepositRequest(requestId, approverId, reason) {
+  const existing = await query('SELECT request_type FROM deposit_requests WHERE request_id = ?', [requestId]);
+  if (existing[0]?.request_type === 'SHARE_PURCHASE') {
+    const { rejectSharePurchaseRequest } = await import('../shares/share.service.js');
+    return rejectSharePurchaseRequest(requestId, approverId, reason);
+  }
   const request = await findDepositRequestById(requestId);
   if (!request) {
     throw httpError(404, 'Deposit request not found');

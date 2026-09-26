@@ -283,7 +283,7 @@ const SystemSettings = () => {
                   <div>
                     <CardTitle>Share Settings</CardTitle>
                     <CardDescription>
-                      Share price and minimum share requirement (used for member lien calculation)
+                      Price for future purchases and an informational ownership target
                     </CardDescription>
                   </div>
                 </div>
@@ -292,13 +292,13 @@ const SystemSettings = () => {
                 <div className="space-y-2">
                   <Label htmlFor="share-price">Share Price (ETB)</Label>
                   <p className="text-sm text-muted-foreground">
-                    Used to compute lien amount: shares × share price
+                    Applied only to future share purchases. Existing purchased units never change when this price changes.
                   </p>
                   <div className="flex gap-2 max-w-xs">
                     <Input
                       id="share-price"
                       type="number"
-                      step="1"
+                      step="0.01"
                       min="0"
                       value={configs['share_price'] || '300'}
                       onChange={(e) => handleInputChange('share_price', e.target.value)}
@@ -319,13 +319,13 @@ const SystemSettings = () => {
                 <div className="space-y-2">
                   <Label htmlFor="min-shares-required">Minimum Shares Required</Label>
                   <p className="text-sm text-muted-foreground">
-                    If member requested fewer shares, this minimum will be used for lien calculation
+                    Informational ownership target only. It is not a lien and does not block transactions.
                   </p>
                   <div className="flex gap-2 max-w-xs">
                     <Input
                       id="min-shares-required"
                       type="number"
-                      step="1"
+                      step="0.00000001"
                       min="0"
                       value={configs['min_shares_required'] || '10'}
                       onChange={(e) => handleInputChange('min_shares_required', e.target.value)}
@@ -340,6 +340,9 @@ const SystemSettings = () => {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Default: 10 shares
+                  </p>
+                  <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-900">
+                    Example: changing the price from 300 ETB to 500 ETB affects new purchases only; a member who already owns 10 shares still owns 10 shares.
                   </p>
                 </div>
               </CardContent>

@@ -18,7 +18,7 @@ import { query, withTransaction } from '../../core/db.js';
 import { postMasterEntry } from '../profit-distributions/master-ledger.js';
 import { insertAuditLog } from '../admin/audit.repository.js';
 import { addisAbabaDate } from '../profit-distributions/money.js';
-import { ensureMemberSavingsAccounts } from '../accounts/account.service.js';
+import { ensureMemberSavingsAccounts, ensureMemberShareAccount } from '../accounts/account.service.js';
 
 function generateMembershipNumber() {
   return `MEM-${Date.now()}`;
@@ -156,12 +156,13 @@ export async function createNewMember(payload, actor = null) {
         actor,
         connection
       );
+      await ensureMemberShareAccount(memberId, actor, connection);
       await insertAuditLog({
         userId: actor?.userId || null,
         action: 'CREATE_MEMBER',
         entity: 'members',
         entityId: memberId,
-        metadata: { membership_no: membershipNo, account_product_codes: payload.account_product_codes || ['SAV_VOLUNTARY', 'SAV_COMPULSORY'] },
+        metadata: { membership_no: membershipNo, account_product_codes: [...(payload.account_product_codes || ['SAV_VOLUNTARY', 'SAV_COMPULSORY']), 'SHR_CAP'] },
         connection
       });
     });

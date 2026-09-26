@@ -39,6 +39,8 @@ const formatDate = (dateStr: string, detailed = false) => {
 const transactionTypeConfig: Record<Transaction['type'], { icon: string; colorClass: string; sign: string }> = {
   DEPOSIT: { icon: '↓', colorClass: 'text-success bg-success/10', sign: '+' },
   WITHDRAWAL: { icon: '↑', colorClass: 'text-destructive bg-destructive/10', sign: '-' },
+  SHARE_PURCHASE: { icon: '◆', colorClass: 'text-success bg-success/10', sign: '+' },
+  SHARE_REDEMPTION: { icon: '◇', colorClass: 'text-destructive bg-destructive/10', sign: '-' },
   INTEREST: { icon: '✦', colorClass: 'text-accent bg-accent/10', sign: '+' },
   TRANSFER: { icon: '↔', colorClass: 'text-primary bg-primary/10', sign: '' },
   LOAN_DISBURSEMENT: { icon: '💵', colorClass: 'text-success bg-success/10', sign: '+' },

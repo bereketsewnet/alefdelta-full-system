@@ -49,6 +49,11 @@ const getApiErrorMessage = (error: unknown): string | undefined => {
   return undefined;
 };
 
+const formatShareUnits = (value: string | number | null | undefined): string => {
+  const [whole = '0', fraction = ''] = String(value ?? '0').split('.');
+  return `${whole}.${fraction.padEnd(8, '0').slice(0, 8)}`;
+};
+
 const MemberDetail = () => {
   const [user, setUser] = useState<User | null>(null);
   const navigate = useNavigate();
@@ -248,7 +253,7 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
   const memberAccounts = accountsResponse?.data || [];
   const memberTransactions = transactionsResponse?.data || [];
 
-  // Fetch system configuration (for share lien calculation)
+  // Fetch system configuration for the informational share target display.
   const { data: systemConfigResponse } = useQuery({
     queryKey: ['system-config'],
     queryFn: async () => {
@@ -263,6 +268,44 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
     return acc;
   }, {} as Record<string, string>);
 
+  const { data: shareSummaryResponse } = useQuery({
+    queryKey: ['member-share-summary', id],
+    queryFn: async () => {
+      const res = await api.get<{ data: {
+        balance: string; share_units: string; active_share_price: string; minimum_share_target: string;
+        unit_deficit: string; estimated_target_deficit: string; actual_lien: string; available_balance: string;
+      } }>(`/shares/members/${id}/summary`);
+      return res.data;
+    },
+    enabled: !!id && !!user,
+  });
+  const shareSummary = shareSummaryResponse?.data;
+
+  const { data: shareEntriesResponse, isLoading: loadingShareEntries } = useQuery({
+    queryKey: ['member-share-entries', id],
+    queryFn: async () => {
+      const res = await api.get<{ data: Array<{
+        share_entry_id: string;
+        entry_type: 'PURCHASE' | 'REDEMPTION';
+        amount: string;
+        share_price: string;
+        unit_delta: string;
+        units_after: string;
+        balance_after: string;
+        effective_at: string;
+        reference?: string | null;
+        bank_receipt_no?: string | null;
+        receipt_photo_url?: string | null;
+        bank_receipt_photo_url?: string | null;
+        remark?: string | null;
+        performed_by_username?: string | null;
+      }> }>(`/shares/members/${id}/entries?limit=100`);
+      return res.data;
+    },
+    enabled: !!id && !!user,
+  });
+  const shareEntries = shareEntriesResponse?.data || [];
+
   // Calculate totals
   const totalBalance = memberAccounts.reduce((sum, acc) => sum + Number(acc.balance), 0);
   const totalLien = memberAccounts.reduce((sum, acc) => sum + Number(acc.lien_amount), 0);
@@ -275,16 +318,7 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
   const registrationFee = Number.isFinite(configuredRegistrationFee) ? configuredRegistrationFee : 1000;
   const registrationShareAmount = sharePrice * minSharesRequired;
   const registrationPaymentTotal = registrationFee + registrationShareAmount;
-  const requestedShares = Number(member?.shares_requested ?? 0);
-  // Use per-member shares if set (>0). Only fall back to default minimum when member shares are 0/unset.
-  const effectiveShares = (requestedShares && requestedShares > 0) ? requestedShares : (minSharesRequired || 0);
-  const shareLienAmount =
-    (Number.isFinite(sharePrice) ? sharePrice : 300) *
-    (Number.isFinite(effectiveShares) ? effectiveShares : 0);
-
-  // Display lien should reflect share requirement even if account lien amounts are 0
-  const displayLienAmount = Math.max(totalLien, shareLienAmount);
-  const displayAvailableAmount = Math.max(0, totalBalance - displayLienAmount);
+  const displayAvailableAmount = Math.max(0, totalBalance - totalLien);
 
   if (!user) return null;
   if (loadingMember) return <div className="p-8 text-center">Loading member details...</div>;
@@ -345,6 +379,7 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
 
       // Refresh transactions
       await queryClient.invalidateQueries({ queryKey: ['member-transactions', id] });
+      await queryClient.invalidateQueries({ queryKey: ['member-share-entries', id] });
       setSelectedTransaction({ ...selectedTransaction, receipt_photo_url: response.data.data.receipt_photo_url });
 
       // Reset file state
@@ -386,6 +421,7 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
 
       toast({ title: "Success", description: "Bank receipt photo updated successfully" });
       await queryClient.invalidateQueries({ queryKey: ['member-transactions', id] });
+      await queryClient.invalidateQueries({ queryKey: ['member-share-entries', id] });
       setSelectedTransaction({
         ...selectedTransaction,
         bank_receipt_photo_url: response.data.data.bank_receipt_photo_url
@@ -430,7 +466,7 @@ const selectedAccountProduct = activeAccountProducts.find(p => p.product_code ==
       header: "Type",
       cell: (row: Transaction) => (
         <Badge variant={row.txn_type === 'DEPOSIT' ? 'default' : 'destructive'}>
-          {row.txn_type}
+          {(row.transaction_category || row.txn_type).replaceAll('_', ' ')}
         </Badge>
       ),
     },
@@ -821,6 +857,9 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
       cell: (row: Account) => (
         <div>
           <span className="font-medium text-sm">{getProductName(row.product_code)}</span>
+          {row.product_code === 'SHR_CAP' && (
+            <p className="text-xs text-muted-foreground">{formatShareUnits(row.share_unit_balance)} fractional shares</p>
+          )}
           {renderAccountMetadataSummary(row as AccountWithMetadata)}
         </div>
       ),
@@ -1376,12 +1415,21 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Lien Amount</span>
                   <CurrencyDisplay
-                    amount={displayLienAmount}
+                    amount={totalLien}
                     className="font-medium text-sm text-destructive"
                   />
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  Share lien: {effectiveShares} × {Number.isFinite(sharePrice) ? sharePrice : 300} ETB
+                <p className="text-xs text-muted-foreground">Only money actually held as loan security appears as a lien.</p>
+                <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                  <div className="flex justify-between text-sm"><span>Share Capital</span><CurrencyDisplay amount={Number(shareSummary?.balance || 0)} /></div>
+                  <div className="flex justify-between text-sm"><span>Fractional Shares</span><span className="font-mono font-semibold">{shareSummary?.share_units || '0.00000000'}</span></div>
+                  <div className="flex justify-between text-sm"><span>Price for New Purchases</span><CurrencyDisplay amount={Number(shareSummary?.active_share_price || sharePrice)} /></div>
+                  <div className="flex justify-between text-sm"><span>Minimum Target (informational)</span><span className="font-mono">{shareSummary?.minimum_share_target || minSharesRequired.toFixed(8)}</span></div>
+                  <div className="flex justify-between text-sm"><span>Units Remaining to Target</span><span className="font-mono">{shareSummary?.unit_deficit || '0.00000000'}</span></div>
+                  <div className="flex justify-between text-sm"><span>Estimated ETB to Target</span><CurrencyDisplay amount={Number(shareSummary?.estimated_target_deficit || 0)} /></div>
+                  <div className="flex justify-between text-sm"><span>Actual Share Lien</span><CurrencyDisplay amount={Number(shareSummary?.actual_lien || 0)} /></div>
+                  <div className="flex justify-between text-sm"><span>Available Share Capital</span><CurrencyDisplay amount={Number(shareSummary?.available_balance || 0)} /></div>
+                  <p className="text-xs text-muted-foreground">The target is not a lien and does not block withdrawals.</p>
                 </div>
                 <div className="flex justify-between items-center pt-2 border-t">
                   <span className="text-sm font-medium">Available</span>
@@ -1407,6 +1455,7 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
               </TabsList>
 
               <TabsContent value="accounts" className="mt-6">
+                <div className="space-y-6">
                 <Card>
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -1451,6 +1500,73 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                     )}
                   </CardContent>
                 </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Share Capital Statement</CardTitle>
+                    <CardDescription>
+                      Fractional ownership history. Purchases and redemptions use their snapshotted prices.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {loadingShareEntries ? (
+                      <div className="py-8 text-center text-muted-foreground">Loading share statement...</div>
+                    ) : shareEntries.length === 0 ? (
+                      <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        No share purchases or redemptions have been posted. A zero-balance Share Capital account does not imply ownership.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-md border">
+                        <table className="w-full min-w-[900px] text-sm">
+                          <thead className="bg-muted/50 text-left">
+                            <tr>
+                              <th className="px-3 py-2">Date</th>
+                              <th className="px-3 py-2">Action</th>
+                              <th className="px-3 py-2 text-right">ETB</th>
+                              <th className="px-3 py-2 text-right">Price</th>
+                              <th className="px-3 py-2 text-right">Unit Change</th>
+                              <th className="px-3 py-2 text-right">Units After</th>
+                              <th className="px-3 py-2">Receipts / Evidence</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {shareEntries.map((entry) => (
+                              <tr key={entry.share_entry_id} className="border-t align-top">
+                                <td className="whitespace-nowrap px-3 py-3">{new Date(entry.effective_at).toLocaleString()}</td>
+                                <td className="px-3 py-3">
+                                  <Badge variant={entry.entry_type === 'PURCHASE' ? 'default' : 'secondary'}>
+                                    {entry.entry_type === 'PURCHASE' ? 'Share Purchase' : 'Share Redemption'}
+                                  </Badge>
+                                </td>
+                                <td className="px-3 py-3 text-right font-mono">{formatCurrency(Number(entry.amount))}</td>
+                                <td className="px-3 py-3 text-right font-mono">{formatCurrency(Number(entry.share_price))}</td>
+                                <td className={`px-3 py-3 text-right font-mono ${entry.entry_type === 'PURCHASE' ? 'text-success' : 'text-destructive'}`}>
+                                  {entry.entry_type === 'PURCHASE' ? '+' : ''}{entry.unit_delta}
+                                </td>
+                                <td className="px-3 py-3 text-right font-mono">{entry.units_after}</td>
+                                <td className="px-3 py-3">
+                                  <div className="space-y-1 text-xs">
+                                    <div>Company: {entry.reference || 'N/A'}</div>
+                                    <div>Bank: {entry.bank_receipt_no || 'N/A'}</div>
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                      {entry.receipt_photo_url && (
+                                        <a className="text-primary underline" href={getImageUrl(entry.receipt_photo_url) || '#'} target="_blank" rel="noreferrer">Company photo</a>
+                                      )}
+                                      {entry.bank_receipt_photo_url && (
+                                        <a className="text-primary underline" href={getImageUrl(entry.bank_receipt_photo_url) || '#'} target="_blank" rel="noreferrer">Bank photo</a>
+                                      )}
+                                    </div>
+                                    {entry.remark && <div className="text-muted-foreground">Remark: {entry.remark}</div>}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                </div>
               </TabsContent>
 
               <TabsContent value="transactions" className="mt-6">
@@ -1549,7 +1665,7 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                           <Label className="text-muted-foreground">Type</Label>
                           <div>
                             <Badge variant={selectedTransaction.txn_type === 'DEPOSIT' ? 'default' : 'destructive'}>
-                              {selectedTransaction.txn_type}
+                              {(selectedTransaction.transaction_category || selectedTransaction.txn_type).replaceAll('_', ' ')}
                             </Badge>
                           </div>
                         </div>
@@ -2324,6 +2440,7 @@ const renderAccountMetadataSummary = (account: AccountWithMetadata) => {
                                   <p className="text-xs text-muted-foreground mt-1">
                                     Example total: {registrationPaymentTotal.toLocaleString()} ETB ({registrationFee.toLocaleString()} ETB registration + {registrationShareAmount.toLocaleString()} ETB for {minSharesRequired} shares @ {sharePrice.toLocaleString()} ETB each)
                                   </p>
+                                  <p className="text-xs text-muted-foreground">Registration receipts are documentary evidence only. They do not create Share Capital balance or units; use Share Purchase to post ownership.</p>
                                 </div>
                               </div>
                               <div className="flex gap-2">

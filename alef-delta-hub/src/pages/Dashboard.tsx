@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   FileText,
+  Coins,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -128,6 +129,14 @@ const Dashboard = () => {
     queryKey: ['deposit-requests-pending-count'],
     queryFn: async () => {
       const res = await api.get<{ data: any[] }>('/deposit-requests?status=PENDING');
+      return res.data.data?.length || 0;
+    },
+    enabled: !!user && ['TELLER', 'ADMIN', 'MANAGER'].includes(user.role)
+  });
+  const { data: pendingSharePurchaseRequests } = useQuery({
+    queryKey: ['share-purchase-requests-pending-count'],
+    queryFn: async () => {
+      const res = await api.get<{ data: any[] }>('/shares/requests?status=PENDING');
       return res.data.data?.length || 0;
     },
     enabled: !!user && ['TELLER', 'ADMIN', 'MANAGER'].includes(user.role)
@@ -303,6 +312,58 @@ const Dashboard = () => {
                 </CardContent>
               </Card>
 
+              <Card className="border-primary/30">
+                <CardHeader>
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                      <Coins className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <CardTitle>Share Capital</CardTitle>
+                      <CardDescription>
+                        Buy or redeem fractional member shares through the dedicated SHR_CAP account
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Button
+                    className="w-full justify-start"
+                    size="lg"
+                    onClick={() => navigate("/transactions/new?type=SHARE_PURCHASE")}
+                  >
+                    <Coins className="mr-2 h-4 w-4" />
+                    New Share Purchase
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start"
+                    size="lg"
+                    onClick={() => navigate("/transactions/new?type=SHARE_REDEMPTION")}
+                  >
+                    <ArrowDownRight className="mr-2 h-4 w-4" />
+                    New Share Redemption
+                  </Button>
+                  <Button
+                    variant={pendingSharePurchaseRequests > 0 ? "secondary" : "outline"}
+                    className="w-full justify-start"
+                    size="lg"
+                    onClick={() => navigate("/manager/share-purchase-approvals")}
+                  >
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Member Share Requests
+                    {pendingSharePurchaseRequests > 0 && (
+                      <span className="ml-auto rounded bg-warning px-2 py-0.5 text-xs font-bold text-warning-foreground">
+                        {pendingSharePurchaseRequests} pending
+                      </span>
+                    )}
+                  </Button>
+                  <p className="pt-1 text-xs text-muted-foreground">
+                    Select a member next. The system automatically uses their Share Capital account and calculates fractional units.
+                  </p>
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -310,9 +371,9 @@ const Dashboard = () => {
                       <CardTitle>Approvals</CardTitle>
                       <CardDescription>Review and approve member requests</CardDescription>
                     </div>
-                    {(pendingDepositRequests > 0 || pendingLoanRepaymentRequests > 0 || pendingMemberRegistrationRequests > 0 || pendingPartnerRequests > 0 || pendingLoanRequests > 0) && (
+                    {(pendingDepositRequests > 0 || pendingSharePurchaseRequests > 0 || pendingLoanRepaymentRequests > 0 || pendingMemberRegistrationRequests > 0 || pendingPartnerRequests > 0 || pendingLoanRequests > 0) && (
                       <span className="bg-warning text-warning-foreground text-xs font-bold px-2 py-1 rounded-full">
-                        {(pendingDepositRequests || 0) + (pendingLoanRepaymentRequests || 0) + (pendingMemberRegistrationRequests || 0) + (pendingPartnerRequests || 0) + (pendingLoanRequests || 0)}
+                        {(pendingDepositRequests || 0) + (pendingSharePurchaseRequests || 0) + (pendingLoanRepaymentRequests || 0) + (pendingMemberRegistrationRequests || 0) + (pendingPartnerRequests || 0) + (pendingLoanRequests || 0)}
                       </span>
                     )}
                   </div>
@@ -331,6 +392,16 @@ const Dashboard = () => {
                         {pendingDepositRequests} pending
                       </span>
                     )}
+                  </Button>
+                  <Button
+                    variant={pendingSharePurchaseRequests > 0 ? "default" : "outline"}
+                    className="w-full justify-start"
+                    size="lg"
+                    onClick={() => navigate("/manager/share-purchase-approvals")}
+                  >
+                    <Coins className="mr-2 h-4 w-4" />
+                    Share Purchase Approvals
+                    {pendingSharePurchaseRequests > 0 && <span className="ml-auto rounded bg-background/20 px-2 py-0.5 text-xs font-bold">{pendingSharePurchaseRequests} pending</span>}
                   </Button>
                   <Button 
                     variant={pendingLoanRepaymentRequests > 0 ? "default" : "outline"} 
@@ -415,7 +486,11 @@ const Dashboard = () => {
                           <div className="flex-1">
                             <p className="text-sm font-medium">{txn.member_name}</p>
                             <p className="text-xs text-muted-foreground">
-                              {txn.txn_type} • {txn.membership_no} • {new Date(txn.created_at).toLocaleTimeString()}
+                              {(txn.transaction_category === 'SHARE_PURCHASE'
+                                ? 'Share Purchase'
+                                : txn.transaction_category === 'SHARE_REDEMPTION'
+                                  ? 'Share Redemption'
+                                  : String(txn.txn_type || '').replaceAll('_', ' '))} • {txn.membership_no} • {new Date(txn.created_at).toLocaleTimeString()}
                             </p>
                             {txn.reference && (
                               <p className="text-xs text-muted-foreground">Ref: {txn.reference}</p>
@@ -545,6 +620,16 @@ const Dashboard = () => {
                 <Button variant="outline" size="lg" onClick={() => navigate("/manager/approvals")}>
                   <CheckCircle className="mr-2 h-4 w-4" />
                   Loan Approvals
+                </Button>
+                <Button
+                  variant={pendingSharePurchaseRequests > 0 ? "default" : "outline"}
+                  size="lg"
+                  onClick={() => navigate("/manager/share-purchase-approvals")}
+                  className="relative"
+                >
+                  <Coins className="mr-2 h-4 w-4" />
+                  Share Approvals
+                  {pendingSharePurchaseRequests > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-warning px-1.5 py-0.5 text-xs font-bold text-warning-foreground">{pendingSharePurchaseRequests}</span>}
                 </Button>
                 <Button 
                   variant={pendingDepositRequests > 0 ? "default" : "outline"} 

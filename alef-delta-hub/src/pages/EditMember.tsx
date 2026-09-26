@@ -638,7 +638,7 @@ const EditMember = () => {
                       name="shares_requested"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Number of Shares Requested</FormLabel>
+                          <FormLabel>Declared Share Intention (Historical / Informational)</FormLabel>
                           <FormControl>
                             <Input type="number" placeholder="0" {...field} />
                           </FormControl>

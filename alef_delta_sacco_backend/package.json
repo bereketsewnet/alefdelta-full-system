@@ -12,6 +12,8 @@
     "test": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
     "migrate": "node scripts/run_migrations.js",
     "migrate:single": "node scripts/run_single_migration.js",
+    "shares:rollout-check": "node scripts/fractional_share_rollout_snapshot.js --assert-ready",
+    "shares:bootstrap": "node scripts/create_missing_share_accounts_once.js",
     "db:reset": "node scripts/db_reset.js",
     "seed:admin": "node scripts/db_seed_admin.js"
   },

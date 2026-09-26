@@ -22,7 +22,10 @@ import {
 } from '../financial-references/financial-reference.service.js';
 
 async function getAccountForUpdate(accountId, connection) {
-  const [rows] = await connection.query('SELECT * FROM accounts WHERE account_id = ?', [accountId]);
+  const [rows] = await connection.query(`SELECT a.*, ap.financial_category
+    FROM accounts a
+    JOIN account_products ap ON ap.product_code = a.product_code
+    WHERE a.account_id = ? FOR UPDATE`, [accountId]);
   const account = rows[0];
   if (!account) {
     throw httpError(404, 'Account not found');
@@ -83,6 +86,9 @@ export async function deposit({
   
   const performDeposit = async (connection) => {
     const account = await getAccountForUpdate(accountId, connection);
+    if (account.financial_category === 'SHARE_CAPITAL') {
+      throw httpError(400, 'Use Share Purchase for a Share Capital account so ownership units are recorded correctly');
+    }
     
     // Deposits are allowed on frozen accounts, but not on closed accounts
     if (account.status === 'CLOSED') {
@@ -232,6 +238,9 @@ export async function withdraw({
   
   const performWithdrawal = async (connection) => {
     const account = await getAccountForUpdate(accountId, connection);
+    if (account.financial_category === 'SHARE_CAPITAL') {
+      throw httpError(400, 'Use Share Redemption for a Share Capital account so FIFO ownership units are recorded correctly');
+    }
     
     // Withdrawals are NOT allowed on frozen accounts
     if (account.status === 'FROZEN') {
